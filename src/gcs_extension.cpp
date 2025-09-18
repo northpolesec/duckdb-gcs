@@ -1,10 +1,9 @@
-#define DUCKDB_EXTENSION_MAIN
-
 #include "gcs_extension.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "gcs_filesystem.hpp"
 #include "gcs_secret.hpp"
 
@@ -44,20 +43,24 @@ std::string FindCACertFile(DatabaseInstance &db) {
 	return "";
 }
 
-static void LoadInternal(DatabaseInstance &instance) {
-	auto caFile = FindCACertFile(instance);
+static void LoadInternal(ExtensionLoader &loader) {
+	auto &instance = loader.GetDatabaseInstance();
+
+	// Try to find a CA cert file.
+	auto caFile = FindCACertFile(loader.GetDatabaseInstance());
 
 	// Register GCS filesystem - it will handle [gs,gcs,gcss]:// URLs via CanHandle()
 	auto &fs = instance.GetFileSystem();
 	fs.RegisterSubSystem(make_uniq<GCSFileSystem>(caFile));
 
 	// Register secrets
-	CreateGCSSecretFunctions::Register(instance);
+	CreateGCSSecretFunctions::Register(loader);
 }
 
-void GcsExtension::Load(DuckDB &db) {
-	LoadInternal(*db.instance);
+void GcsExtension::Load(ExtensionLoader &loader) {
+	LoadInternal(loader);
 }
+
 std::string GcsExtension::Name() {
 	return "gcs";
 }
@@ -66,16 +69,7 @@ std::string GcsExtension::Name() {
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void gcs_init(duckdb::DatabaseInstance &db) {
-	duckdb::DuckDB db_wrapper(db);
-	db_wrapper.LoadExtension<duckdb::GcsExtension>();
-}
-
-DUCKDB_EXTENSION_API const char *gcs_version() {
-	return duckdb::DuckDB::LibraryVersion();
+DUCKDB_CPP_EXTENSION_ENTRY(gcs, loader) {
+	duckdb::LoadInternal(loader);
 }
 }
-
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif

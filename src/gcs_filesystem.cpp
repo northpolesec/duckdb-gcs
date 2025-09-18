@@ -135,9 +135,9 @@ int64_t GCSFileSystem::GetFileSize(FileHandle &handle) {
 	return gcp_handle.length;
 }
 
-time_t GCSFileSystem::GetLastModifiedTime(FileHandle &handle) {
+timestamp_t GCSFileSystem::GetLastModifiedTime(FileHandle &handle) {
 	auto &gcp_handle = static_cast<GCSFileHandle &>(handle);
-	return Timestamp::ToTimeT(gcp_handle.last_modified);
+	return gcp_handle.last_modified;
 }
 
 void GCSFileSystem::Seek(FileHandle &handle, idx_t location) {

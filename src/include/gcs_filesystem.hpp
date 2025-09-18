@@ -118,7 +118,7 @@ public:
 		return false;
 	}
 	int64_t GetFileSize(FileHandle &handle) override;
-	time_t GetLastModifiedTime(FileHandle &handle) override;
+	timestamp_t GetLastModifiedTime(FileHandle &handle) override;
 	void Seek(FileHandle &handle, idx_t location) override;
 	void FileSync(FileHandle &handle) override;
 

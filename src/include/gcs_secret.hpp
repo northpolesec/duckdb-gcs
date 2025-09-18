@@ -21,7 +21,7 @@ struct GCSSecretProvider {
 
 class CreateGCSSecretFunctions {
 public:
-	static void Register(DatabaseInstance &instance);
+	static void Register(ExtensionLoader &instance);
 
 	// Secret creation functions
 	static unique_ptr<BaseSecret> CreateGCSSecretFromServiceAccount(ClientContext &context, CreateSecretInput &input);

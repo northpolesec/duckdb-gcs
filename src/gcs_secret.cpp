@@ -1,6 +1,6 @@
 #include "gcs_secret.hpp"
 
-#include "duckdb/main/extension_util.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/common/exception.hpp"
 
@@ -23,13 +23,13 @@ static unique_ptr<CreateSecretFunction> GetGCPCreateSecretFunction() {
 	return make_uniq<CreateSecretFunction>(function);
 }
 
-void CreateGCSSecretFunctions::Register(DatabaseInstance &instance) {
+void CreateGCSSecretFunctions::Register(ExtensionLoader &loader) {
 	// Register the secret type
 	SecretType secret_type;
 	secret_type.name = GetGCSSecretType();
 	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
 	secret_type.default_provider = GCSSecretProvider::CREDENTIAL_CHAIN;
-	ExtensionUtil::RegisterSecretType(instance, secret_type);
+	loader.RegisterSecretType(secret_type);
 
 	// Service Account provider
 	CreateSecretFunction service_account_function = {secret_type.name, GCSSecretProvider::SERVICE_ACCOUNT,
@@ -37,20 +37,20 @@ void CreateGCSSecretFunctions::Register(DatabaseInstance &instance) {
 	service_account_function.named_parameters["service_account_key_path"] = LogicalType::VARCHAR;
 	service_account_function.named_parameters["service_account_email"] = LogicalType::VARCHAR;
 	service_account_function.named_parameters["project_id"] = LogicalType::VARCHAR;
-	ExtensionUtil::RegisterFunction(instance, service_account_function);
+	loader.RegisterFunction(service_account_function);
 
 	// Credential Chain provider (default)
 	CreateSecretFunction credential_chain_function = {secret_type.name, GCSSecretProvider::CREDENTIAL_CHAIN,
 	                                                  CreateGCSSecretFromCredentialChain};
 	credential_chain_function.named_parameters["project_id"] = LogicalType::VARCHAR;
-	ExtensionUtil::RegisterFunction(instance, credential_chain_function);
+	loader.RegisterFunction(credential_chain_function);
 
 	// Access Token provider
 	CreateSecretFunction access_token_function = {secret_type.name, GCSSecretProvider::ACCESS_TOKEN,
 	                                              CreateGCSSecretFromAccessToken};
 	access_token_function.named_parameters["access_token"] = LogicalType::VARCHAR;
 	access_token_function.named_parameters["project_id"] = LogicalType::VARCHAR;
-	ExtensionUtil::RegisterFunction(instance, access_token_function);
+	loader.RegisterFunction(access_token_function);
 }
 
 unique_ptr<BaseSecret> CreateGCSSecretFunctions::CreateGCSSecretFromServiceAccount(ClientContext &context,

@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-struct GCPParsedUrl {
+struct GCSParsedUrl {
 	std::string bucket;
 	std::string object_key;
 	std::string endpoint;

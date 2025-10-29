@@ -4,6 +4,7 @@
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/main/config.hpp"
 #include "gcs_filesystem.hpp"
 #include "gcs_secret.hpp"
 
@@ -55,6 +56,40 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// Register secrets
 	CreateGCSSecretFunctions::Register(loader);
+
+	// Register extension options
+	auto &config = DBConfig::GetConfig(instance);
+	GCSReadOptions default_read_options;
+
+	config.AddExtensionOption("gcs_enable_metadata_cache",
+	                          "Enable caching of object metadata (size, modification time) to reduce API calls. "
+	                          "Set to false to disable caching for debugging or when files change frequently.",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(default_read_options.enable_metadata_cache));
+
+	config.AddExtensionOption("gcs_metadata_cache_ttl",
+	                          "Time-to-live in seconds for cached object metadata. Default is 300 seconds (5 minutes). "
+	                          "Increase for stable files, decrease if files change frequently.",
+	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.metadata_cache_ttl_seconds));
+
+	config.AddExtensionOption("gcs_list_cache_ttl",
+	                          "Time-to-live in seconds for cached object listing results (used in glob operations). "
+	                          "Default is 60 seconds. Increase for stable directories, decrease if objects are added/removed frequently.",
+	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.list_cache_ttl_seconds));
+
+	config.AddExtensionOption("gcs_max_metadata_cache_entries",
+	                          "Maximum number of metadata cache entries to prevent unbounded memory growth. "
+	                          "Default is 10000. When limit is reached, least recently used entries are evicted.",
+	                          LogicalType::UBIGINT, Value::UBIGINT(default_read_options.max_metadata_cache_entries));
+
+	config.AddExtensionOption("gcs_max_list_cache_entries",
+	                          "Maximum number of list cache entries to prevent unbounded memory growth. "
+	                          "Default is 1000. When limit is reached, least recently used entries are evicted.",
+	                          LogicalType::UBIGINT, Value::UBIGINT(default_read_options.max_list_cache_entries));
+
+	config.AddExtensionOption("gcs_transfer_concurrency",
+	                          "Number of concurrent worker threads to use when reading. "
+	                          "Default is 5.",
+	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.transfer_concurrency));
 }
 
 void GcsExtension::Load(ExtensionLoader &loader) {

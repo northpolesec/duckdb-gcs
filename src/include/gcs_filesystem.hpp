@@ -1,6 +1,11 @@
 #pragma once
 
 #include <google/cloud/storage/client.h>
+#include <google/cloud/storage/object_metadata.h>
+#include <unordered_map>
+#include <mutex>
+#include <chrono>
+#include <optional>
 
 #include "gcs_parsed_url.hpp"
 #include "duckdb/common/assert.hpp"
@@ -8,24 +13,58 @@
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/main/client_context_state.hpp"
+#include <cstddef>
 #include <ctime>
 #include <cstdint>
 
 namespace duckdb {
 
-struct GCPReadOptions {
+namespace gcs = ::google::cloud::storage;
+
+struct GCSReadOptions {
 	int32_t transfer_concurrency = 5;
-	int64_t transfer_chunk_size = 1 * 1024 * 1024;
-	idx_t buffer_size = 1 * 1024 * 1024;
+	int64_t transfer_chunk_size = static_cast<int64_t>(1 * 1024 * 1024);
+
+	idx_t buffer_size = static_cast<idx_t>(1 * 1024 * 1024);
+
+	int32_t metadata_cache_ttl_seconds = 300;
+	int32_t list_cache_ttl_seconds = 60;
+	bool enable_metadata_cache = true;
+
+	// Cache size limits to prevent unbounded memory growth
+	idx_t max_metadata_cache_entries = 10000;
+	idx_t max_list_cache_entries = 1000;
 };
 
-class GCPContextState : public ClientContextState {
-public:
-	const GCPReadOptions read_options;
+struct MetadataCacheEntry {
+	gcs::ObjectMetadata metadata;
+	std::chrono::steady_clock::time_point cached_at;
+	mutable std::chrono::steady_clock::time_point last_accessed;
+};
 
-public:
-	virtual bool IsValid() const;
+struct ListCacheEntry {
+	vector<OpenFileInfo> results;
+	std::chrono::steady_clock::time_point cached_at;
+	mutable std::chrono::steady_clock::time_point last_accessed;
+};
+
+class GCSFileSystem;
+
+class GCSContextState : public ClientContextState {
+ public:
+	GCSContextState(gcs::Client client, const GCSReadOptions &read_options) : read_options(read_options), client(std::move(client)) { }
+
 	void QueryEnd() override;
+
+	std::optional<gcs::ObjectMetadata> GetCachedMetadata(const std::string &bucket, const std::string &object_key);
+	void SetCachedMetadata(const std::string &bucket, const std::string &object_key, const gcs::ObjectMetadata &metadata);
+	std::optional<vector<OpenFileInfo>> GetCachedList(const std::string &bucket, const std::string &prefix);
+	void SetCachedList(const std::string &bucket, const std::string &prefix, const vector<OpenFileInfo> &results);
+
+	inline std::string MakeMetadataKey(const std::string &bucket, const std::string &object_key) { return "metadata:" + bucket + ":" + object_key; }
+	inline std::string MakeListKey(const std::string &bucket, const std::string &prefix) { return "list:" + bucket + ":" + prefix; }
+
+	inline gcs::Client& GetClient() { return client; }
 
 	template <class TARGET>
 	TARGET &As() {
@@ -38,31 +77,33 @@ public:
 		return reinterpret_cast<const TARGET &>(*this);
 	}
 
-protected:
-	GCPContextState(const GCPReadOptions &read_options);
+ protected:
+	const GCSReadOptions read_options;
 
-protected:
-	bool is_valid;
-};
+	gcs::Client client;
 
-class GCSFileSystem;
+ private:
+	std::mutex cache_mutex;
+	std::unordered_map<std::string, MetadataCacheEntry> metadata_cache;
+	std::unordered_map<std::string, ListCacheEntry> list_cache;
 
-class GCSContextState : public GCPContextState {
-public:
-	GCSContextState(const google::cloud::storage::Client &client, const GCPReadOptions &read_options)
-	    : GCPContextState(read_options), client(client) {
-	}
-
-	google::cloud::storage::Client client;
+	void EvictLRUMetadataEntryLocked();
+	void EvictLRUListEntryLocked();
 };
 
 class GCSFileHandle : public FileHandle {
 public:
-	GCSFileHandle(GCSFileSystem &fs, const OpenFileInfo &info, FileOpenFlags flags, const GCPReadOptions &read_options,
-	              const std::string &bucket, const std::string &object_key, google::cloud::storage::Client client);
+	GCSFileHandle(GCSFileSystem &fs, const OpenFileInfo &info, FileOpenFlags flags, const GCSReadOptions &read_options,
+	              const std::string &bucket, const std::string &object_key, shared_ptr<GCSContextState> context);
 
-	virtual bool PostConstruct();
+	bool PostConstruct();
+	void TryAddLogger(FileOpener &opener);
 	void Close() override {
+		// No explicit cleanup needed.
+	}
+
+	inline gcs::Client& GetClient() {
+		return context->GetClient();
 	}
 
 	FileOpenFlags flags;
@@ -80,12 +121,14 @@ public:
 	idx_t buffer_start;
 	idx_t buffer_end;
 
-	const GCPReadOptions read_options;
+	const GCSReadOptions read_options;
 
 	// GCS-specific fields
 	std::string bucket;
 	std::string object_key;
-	google::cloud::storage::Client client;
+	// Context is owned by the ClientContext's registered_state, not by this handle.
+	// This prevents circular references since the context never holds references to handles.
+	shared_ptr<GCSContextState> context;
 };
 
 class GCSFileSystem : public FileSystem {
@@ -144,13 +187,13 @@ protected:
 	void ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len);
 
 	const std::string &GetContextPrefix() const;
-	shared_ptr<GCPContextState> GetOrCreateStorageContext(optional_ptr<FileOpener> opener, const string &path,
-	                                                      const GCPParsedUrl &parsed_url);
-	shared_ptr<GCPContextState> CreateStorageContext(optional_ptr<FileOpener> opener, const std::string &path,
-	                                                 const GCPParsedUrl &parsed_url);
+	shared_ptr<GCSContextState> GetOrCreateStorageContext(optional_ptr<FileOpener> opener, const string &path,
+	                                                      const GCSParsedUrl &parsed_url);
+	shared_ptr<GCSContextState> CreateStorageContext(optional_ptr<FileOpener> opener, const std::string &path,
+	                                                 const GCSParsedUrl &parsed_url);
 
 	void LoadRemoteFileInfo(GCSFileHandle &handle);
-	static GCPReadOptions ParseGCPReadOptions(optional_ptr<FileOpener> opener);
+	static GCSReadOptions ParseGCSReadOptions(optional_ptr<FileOpener> opener);
 
 private:
 	std::string context_prefix = "gcs_context_";

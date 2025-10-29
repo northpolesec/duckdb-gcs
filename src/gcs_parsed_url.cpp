@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-void GCPParsedUrl::ParseUrl(const std::string &url) {
+void GCSParsedUrl::ParseUrl(const std::string &url) {
 	// Support gs://, gcs://, and gcss:// prefixes
 	std::regex url_regex("^(gs|gcs|gcss)://([^/]+)/(.*)$");
 	std::smatch matches;

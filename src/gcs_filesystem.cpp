@@ -21,13 +21,15 @@ namespace duckdb {
 
 namespace gcs = ::google::cloud::storage;
 
-google::cloud::Options BuildOptimizedClientOptions(std::shared_ptr<google::cloud::Credentials> credentials, const std::string& ca_roots_path, const GCSReadOptions &read_options) {
-	auto options = google::cloud::Options{};
+google::cloud::Options BuildOptimizedClientOptions(std::shared_ptr<google::cloud::Credentials> credentials,
+                                                   const std::string &ca_roots_path,
+                                                   const GCSReadOptions &read_options) {
+	auto options = google::cloud::Options {};
 	options.set<google::cloud::UnifiedCredentialsOption>(std::move(credentials));
 	options.set<gcs::DownloadBufferSizeOption>(read_options.buffer_size);
 	options.set<gcs::RetryPolicyOption>(gcs::LimitedErrorCountRetryPolicy(3).clone());
-	options.set<gcs::BackoffPolicyOption>(google::cloud::ExponentialBackoffPolicy(
-		std::chrono::milliseconds(100), std::chrono::seconds(5), 2.0).clone());
+	options.set<gcs::BackoffPolicyOption>(
+	    google::cloud::ExponentialBackoffPolicy(std::chrono::milliseconds(100), std::chrono::seconds(5), 2.0).clone());
 
 	if (!ca_roots_path.empty()) {
 		options.set<google::cloud::CARootsFilePathOption>(ca_roots_path);
@@ -36,9 +38,11 @@ google::cloud::Options BuildOptimizedClientOptions(std::shared_ptr<google::cloud
 	return options;
 }
 
-void GCSContextState::QueryEnd() { }
+void GCSContextState::QueryEnd() {
+}
 
-std::optional<gcs::ObjectMetadata> GCSContextState::GetCachedMetadata(const std::string &bucket, const std::string &object_key) {
+std::optional<gcs::ObjectMetadata> GCSContextState::GetCachedMetadata(const std::string &bucket,
+                                                                      const std::string &object_key) {
 	if (!read_options.enable_metadata_cache) {
 		return std::nullopt;
 	}
@@ -51,7 +55,8 @@ std::optional<gcs::ObjectMetadata> GCSContextState::GetCachedMetadata(const std:
 		return std::nullopt;
 	}
 
-	auto age = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - it->second.cached_at).count();
+	auto age = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - it->second.cached_at)
+	               .count();
 	if (age > read_options.metadata_cache_ttl_seconds) {
 		metadata_cache.erase(it);
 		return std::nullopt;
@@ -62,7 +67,8 @@ std::optional<gcs::ObjectMetadata> GCSContextState::GetCachedMetadata(const std:
 	return it->second.metadata;
 }
 
-void GCSContextState::SetCachedMetadata(const std::string &bucket, const std::string &object_key, const gcs::ObjectMetadata &metadata) {
+void GCSContextState::SetCachedMetadata(const std::string &bucket, const std::string &object_key,
+                                        const gcs::ObjectMetadata &metadata) {
 	if (!read_options.enable_metadata_cache) {
 		return;
 	}
@@ -81,7 +87,8 @@ void GCSContextState::SetCachedMetadata(const std::string &bucket, const std::st
 	metadata_cache[key] = {metadata, now, now};
 }
 
-std::optional<vector<OpenFileInfo>> GCSContextState::GetCachedList(const std::string &bucket, const std::string &prefix) {
+std::optional<vector<OpenFileInfo>> GCSContextState::GetCachedList(const std::string &bucket,
+                                                                   const std::string &prefix) {
 	if (!read_options.enable_metadata_cache) {
 		return std::nullopt;
 	}
@@ -94,7 +101,8 @@ std::optional<vector<OpenFileInfo>> GCSContextState::GetCachedList(const std::st
 		return std::nullopt;
 	}
 
-	auto age = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - it->second.cached_at).count();
+	auto age = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - it->second.cached_at)
+	               .count();
 	if (age > read_options.list_cache_ttl_seconds) {
 		it = list_cache.erase(it);
 		return std::nullopt;
@@ -105,7 +113,8 @@ std::optional<vector<OpenFileInfo>> GCSContextState::GetCachedList(const std::st
 	return it->second.results;
 }
 
-void GCSContextState::SetCachedList(const std::string &bucket, const std::string &prefix, const vector<OpenFileInfo> &results) {
+void GCSContextState::SetCachedList(const std::string &bucket, const std::string &prefix,
+                                    const vector<OpenFileInfo> &results) {
 	if (!read_options.enable_metadata_cache) {
 		return;
 	}
@@ -115,8 +124,7 @@ void GCSContextState::SetCachedList(const std::string &bucket, const std::string
 	std::scoped_lock lock(cache_mutex);
 
 	// Check if we need to evict before inserting
-	if (list_cache.size() >= read_options.max_list_cache_entries &&
-	    list_cache.find(key) == list_cache.end()) {
+	if (list_cache.size() >= read_options.max_list_cache_entries && list_cache.find(key) == list_cache.end()) {
 		EvictLRUListEntryLocked();
 	}
 
@@ -366,7 +374,8 @@ GCSReadOptions GCSFileSystem::ParseGCSReadOptions(optional_ptr<FileOpener> opene
 			throw InvalidInputException("gcs_max_metadata_cache_entries must be at least 10 (got %llu)", max_entries);
 		}
 		if (max_entries > 10000000) {
-			throw InvalidInputException("gcs_max_metadata_cache_entries cannot exceed 10,000,000 (got %llu)", max_entries);
+			throw InvalidInputException("gcs_max_metadata_cache_entries cannot exceed 10,000,000 (got %llu)",
+			                            max_entries);
 		}
 		options.max_metadata_cache_entries = max_entries;
 	}
@@ -467,10 +476,10 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 	// List objects with prefix
 	try {
 		// Add a timeout for the list operation
-		auto list_request =
-		    gcs_context.GetClient().ListObjects(parsed_url.bucket, gcs::Prefix(prefix),
-		                                   gcs::MaxResults(1000) // Limit results to prevent hanging on large buckets
-		    );
+		auto list_request = gcs_context.GetClient().ListObjects(
+		    parsed_url.bucket, gcs::Prefix(prefix),
+		    gcs::MaxResults(1000) // Limit results to prevent hanging on large buckets
+		);
 
 		for (auto &&object_metadata : list_request) {
 			if (!object_metadata) {
@@ -546,8 +555,9 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 	}
 
 	auto read_options = ParseGCSReadOptions(opener);
-	auto handle = make_uniq<GCSFileHandle>(*this, info, flags, read_options, parsed_url.bucket, parsed_url.object_key, context);
-  handle->TryAddLogger(*opener);
+	auto handle =
+	    make_uniq<GCSFileHandle>(*this, info, flags, read_options, parsed_url.bucket, parsed_url.object_key, context);
+	handle->TryAddLogger(*opener);
 
 	// Load file metadata
 	LoadFileInfo(*handle);
@@ -568,8 +578,8 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 
 	if (!use_parallel) {
 		// Single-threaded read for small reads
-		auto reader = handle.GetClient().ReadObject(
-			handle.bucket, handle.object_key, gcs::ReadRange(file_offset, file_offset + buffer_out_len));
+		auto reader = handle.GetClient().ReadObject(handle.bucket, handle.object_key,
+		                                            gcs::ReadRange(file_offset, file_offset + buffer_out_len));
 		if (!reader) {
 			throw IOException("Failed to read from GCS: " + reader.status().message());
 		}
@@ -582,8 +592,7 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 	}
 
 	// Parallel chunked read
-	idx_t chunk_size = std::max(opts.transfer_chunk_size,
-		static_cast<int64_t>(opts.buffer_size));
+	idx_t chunk_size = std::max(opts.transfer_chunk_size, static_cast<int64_t>(opts.buffer_size));
 	idx_t num_chunks = (buffer_out_len + chunk_size - 1) / chunk_size;
 	idx_t max_concurrent = std::min(static_cast<idx_t>(opts.transfer_concurrency), num_chunks);
 
@@ -600,11 +609,11 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 	std::vector<ChunkRead> chunks(num_chunks);
 	for (idx_t i = 0; i < num_chunks; i++) {
 		chunks[i] = {
-			.chunk_idx = i,
-			.chunk_offset = file_offset + i * chunk_size,
-			.chunk_size = std::min(chunk_size, buffer_out_len - i * chunk_size),
-			.chunk_buffer = buffer_out + i * chunk_size,
-			.completed = false,
+		    .chunk_idx = i,
+		    .chunk_offset = file_offset + i * chunk_size,
+		    .chunk_size = std::min(chunk_size, buffer_out_len - i * chunk_size),
+		    .chunk_buffer = buffer_out + i * chunk_size,
+		    .completed = false,
 		};
 	}
 
@@ -628,8 +637,8 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 			auto &chunk = chunks[current_chunk];
 			try {
 				auto reader = handle.GetClient().ReadObject(
-					handle.bucket, handle.object_key,
-					gcs::ReadRange(chunk.chunk_offset, chunk.chunk_offset + chunk.chunk_size));
+				    handle.bucket, handle.object_key,
+				    gcs::ReadRange(chunk.chunk_offset, chunk.chunk_offset + chunk.chunk_size));
 
 				if (!reader) {
 					throw IOException("Failed to read chunk from GCS: " + reader.status().message());

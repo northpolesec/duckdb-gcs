@@ -51,20 +51,29 @@ struct ListCacheEntry {
 class GCSFileSystem;
 
 class GCSContextState : public ClientContextState {
- public:
-	GCSContextState(gcs::Client client, const GCSReadOptions &read_options) : read_options(read_options), client(std::move(client)) { }
+public:
+	GCSContextState(gcs::Client client, const GCSReadOptions &read_options)
+	    : read_options(read_options), client(std::move(client)) {
+	}
 
 	void QueryEnd() override;
 
 	std::optional<gcs::ObjectMetadata> GetCachedMetadata(const std::string &bucket, const std::string &object_key);
-	void SetCachedMetadata(const std::string &bucket, const std::string &object_key, const gcs::ObjectMetadata &metadata);
+	void SetCachedMetadata(const std::string &bucket, const std::string &object_key,
+	                       const gcs::ObjectMetadata &metadata);
 	std::optional<vector<OpenFileInfo>> GetCachedList(const std::string &bucket, const std::string &prefix);
 	void SetCachedList(const std::string &bucket, const std::string &prefix, const vector<OpenFileInfo> &results);
 
-	inline std::string MakeMetadataKey(const std::string &bucket, const std::string &object_key) { return "metadata:" + bucket + ":" + object_key; }
-	inline std::string MakeListKey(const std::string &bucket, const std::string &prefix) { return "list:" + bucket + ":" + prefix; }
+	inline std::string MakeMetadataKey(const std::string &bucket, const std::string &object_key) {
+		return "metadata:" + bucket + ":" + object_key;
+	}
+	inline std::string MakeListKey(const std::string &bucket, const std::string &prefix) {
+		return "list:" + bucket + ":" + prefix;
+	}
 
-	inline gcs::Client& GetClient() { return client; }
+	inline gcs::Client &GetClient() {
+		return client;
+	}
 
 	template <class TARGET>
 	TARGET &As() {
@@ -77,12 +86,12 @@ class GCSContextState : public ClientContextState {
 		return reinterpret_cast<const TARGET &>(*this);
 	}
 
- protected:
+protected:
 	const GCSReadOptions read_options;
 
 	gcs::Client client;
 
- private:
+private:
 	std::mutex cache_mutex;
 	std::unordered_map<std::string, MetadataCacheEntry> metadata_cache;
 	std::unordered_map<std::string, ListCacheEntry> list_cache;
@@ -102,7 +111,7 @@ public:
 		// No explicit cleanup needed.
 	}
 
-	inline gcs::Client& GetClient() {
+	inline gcs::Client &GetClient() {
 		return context->GetClient();
 	}
 

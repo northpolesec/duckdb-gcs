@@ -71,10 +71,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Increase for stable files, decrease if files change frequently.",
 	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.metadata_cache_ttl_seconds));
 
-	config.AddExtensionOption("gcs_list_cache_ttl",
-	                          "Time-to-live in seconds for cached object listing results (used in glob operations). "
-	                          "Default is 60 seconds. Increase for stable directories, decrease if objects are added/removed frequently.",
-	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.list_cache_ttl_seconds));
+	config.AddExtensionOption(
+	    "gcs_list_cache_ttl",
+	    "Time-to-live in seconds for cached object listing results (used in glob operations). "
+	    "Default is 60 seconds. Increase for stable directories, decrease if objects are added/removed frequently.",
+	    LogicalType::INTEGER, Value::INTEGER(default_read_options.list_cache_ttl_seconds));
 
 	config.AddExtensionOption("gcs_max_metadata_cache_entries",
 	                          "Maximum number of metadata cache entries to prevent unbounded memory growth. "

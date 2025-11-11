@@ -5,7 +5,7 @@ EXT_FLAGS=CMAKE_EXPORT_COMPILE_COMMANDS=1
 
 # Require VCPKG_ROOT to be set
 ifeq ("${VCPKG_ROOT}", "")
-  $(error VCPKG_ROOT is not set. Please set it to your vcpkg installation directory, e.g., export VCPKG_ROOT=~/dev/vcpkg)
+  $(warning VCPKG_ROOT is not set. Please set it to your vcpkg installation directory, e.g., export VCPKG_ROOT=~/dev/vcpkg)
 endif
 
 # Set VCPKG_TOOLCHAIN_PATH if not already set

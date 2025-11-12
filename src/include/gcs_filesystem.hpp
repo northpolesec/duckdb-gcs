@@ -29,7 +29,7 @@ struct GCSReadOptions {
 
 	int32_t metadata_cache_ttl_seconds = 300;
 	int32_t list_cache_ttl_seconds = 60;
-	bool enable_metadata_cache = true;
+	bool enable_caches = true;
 
 	// Cache size limits to prevent unbounded memory growth
 	idx_t max_metadata_cache_entries = 10000;
@@ -71,7 +71,7 @@ public:
 		return "list:" + bucket + ":" + prefix;
 	}
 
-	inline gcs::Client &GetClient() {
+	inline gcs::Client GetClient() {
 		return client;
 	}
 
@@ -111,7 +111,7 @@ public:
 		// No explicit cleanup needed.
 	}
 
-	inline gcs::Client &GetClient() {
+	inline gcs::Client GetClient() {
 		return context->GetClient();
 	}
 
@@ -209,5 +209,8 @@ private:
 
 	std::string ca_roots_path;
 };
+
+// Helper function to safely calculate max read size, preventing integer overflow
+int64_t SafeMaxRead(idx_t offset, idx_t length);
 
 } // namespace duckdb

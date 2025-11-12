@@ -64,7 +64,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	config.AddExtensionOption("gcs_enable_metadata_cache",
 	                          "Enable caching of object metadata (size, modification time) to reduce API calls. "
 	                          "Set to false to disable caching for debugging or when files change frequently.",
-	                          LogicalType::BOOLEAN, Value::BOOLEAN(default_read_options.enable_metadata_cache));
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(default_read_options.enable_caches));
 
 	config.AddExtensionOption("gcs_metadata_cache_ttl",
 	                          "Time-to-live in seconds for cached object metadata. Default is 300 seconds (5 minutes). "

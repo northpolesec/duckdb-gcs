@@ -43,7 +43,7 @@ void GCSContextState::QueryEnd() {
 
 std::optional<gcs::ObjectMetadata> GCSContextState::GetCachedMetadata(const std::string &bucket,
                                                                       const std::string &object_key) {
-	if (!read_options.enable_metadata_cache) {
+	if (!read_options.enable_caches) {
 		return std::nullopt;
 	}
 
@@ -69,7 +69,7 @@ std::optional<gcs::ObjectMetadata> GCSContextState::GetCachedMetadata(const std:
 
 void GCSContextState::SetCachedMetadata(const std::string &bucket, const std::string &object_key,
                                         const gcs::ObjectMetadata &metadata) {
-	if (!read_options.enable_metadata_cache) {
+	if (!read_options.enable_caches) {
 		return;
 	}
 
@@ -89,7 +89,7 @@ void GCSContextState::SetCachedMetadata(const std::string &bucket, const std::st
 
 std::optional<vector<OpenFileInfo>> GCSContextState::GetCachedList(const std::string &bucket,
                                                                    const std::string &prefix) {
-	if (!read_options.enable_metadata_cache) {
+	if (!read_options.enable_caches) {
 		return std::nullopt;
 	}
 
@@ -115,7 +115,7 @@ std::optional<vector<OpenFileInfo>> GCSContextState::GetCachedList(const std::st
 
 void GCSContextState::SetCachedList(const std::string &bucket, const std::string &prefix,
                                     const vector<OpenFileInfo> &results) {
-	if (!read_options.enable_metadata_cache) {
+	if (!read_options.enable_caches) {
 		return;
 	}
 
@@ -289,9 +289,28 @@ void GCSFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx
 	}
 }
 
+int64_t SafeMaxRead(idx_t offset, idx_t length) {
+	if (offset >= length) {
+		// Already at or past EOF
+		return 0;
+	}
+
+	// Compute difference in unsigned space to avoid overflow
+	idx_t unsigned_diff = length - offset;
+	// Check if the difference exceeds the maximum signed 64-bit value
+	if (unsigned_diff > static_cast<idx_t>(NumericLimits<int64_t>::Maximum())) {
+		return NumericLimits<int64_t>::Maximum();
+	} else {
+		return static_cast<int64_t>(unsigned_diff);
+	}
+}
+
 int64_t GCSFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes) {
 	auto &gcp_handle = handle.Cast<GCSFileHandle>();
-	int64_t max_read = (int64_t)gcp_handle.length - gcp_handle.file_offset;
+
+	// Calculate max_read safely to avoid integer overflow/underflow
+	int64_t max_read = SafeMaxRead(gcp_handle.file_offset, gcp_handle.length);
+
 	nr_bytes = MinValue<int64_t>(max_read, nr_bytes);
 	Read(handle, buffer, nr_bytes, gcp_handle.file_offset);
 	gcp_handle.file_offset += nr_bytes;
@@ -366,7 +385,7 @@ GCSReadOptions GCSFileSystem::ParseGCSReadOptions(optional_ptr<FileOpener> opene
 		options.list_cache_ttl_seconds = ttl;
 	}
 	if (FileOpener::TryGetCurrentSetting(opener, "gcs_enable_metadata_cache", value)) {
-		options.enable_metadata_cache = value.GetValue<bool>();
+		options.enable_caches = value.GetValue<bool>();
 	}
 	if (FileOpener::TryGetCurrentSetting(opener, "gcs_max_metadata_cache_entries", value)) {
 		auto max_entries = value.GetValue<idx_t>();
@@ -475,10 +494,9 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 
 	// List objects with prefix
 	try {
-		// Add a timeout for the list operation
 		auto list_request = gcs_context.GetClient().ListObjects(
 		    parsed_url.bucket, gcs::Prefix(prefix),
-		    gcs::MaxResults(1000) // Limit results to prevent hanging on large buckets
+		    gcs::MaxResults(10000) // Limit results to prevent hanging on large buckets
 		);
 
 		for (auto &&object_metadata : list_request) {
@@ -566,10 +584,6 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 }
 
 void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
-	GCSParsedUrl parsed_url;
-	parsed_url.bucket = handle.bucket;
-	parsed_url.object_key = handle.object_key;
-
 	auto &gcs_context = handle.context->As<GCSContextState>();
 	auto opts = handle.read_options;
 
@@ -754,10 +768,6 @@ shared_ptr<GCSContextState> GCSFileSystem::CreateStorageContext(optional_ptr<Fil
 }
 
 void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
-	GCSParsedUrl parsed_url;
-	parsed_url.bucket = handle.bucket;
-	parsed_url.object_key = handle.object_key;
-
 	auto &gcs_context = handle.context->As<GCSContextState>();
 
 	// Check cache first

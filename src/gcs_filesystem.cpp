@@ -496,6 +496,7 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 
 	// List objects with prefix
 	try {
+		// TODO: Add pagination if the number of results is > the max specified here
 		auto list_request = gcs_context.GetClient().ListObjects(
 		    parsed_url.bucket, gcs::Prefix(prefix),
 		    gcs::MaxResults(10000) // Limit results to prevent hanging on large buckets

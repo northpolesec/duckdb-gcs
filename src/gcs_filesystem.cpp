@@ -608,13 +608,13 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 
 	std::vector<ChunkRead> chunks(num_chunks);
 	for (idx_t i = 0; i < num_chunks; i++) {
-		chunks[i] = {
-		    .chunk_idx = i,
-		    .chunk_offset = file_offset + i * chunk_size,
-		    .chunk_size = std::min(chunk_size, buffer_out_len - i * chunk_size),
-		    .chunk_buffer = buffer_out + i * chunk_size,
-		    .completed = false,
-		};
+		ChunkRead c;
+		c.chunk_idx = i;
+		c.chunk_offset = file_offset + i * chunk_size;
+		c.chunk_size = std::min(chunk_size, buffer_out_len - i * chunk_size);
+		c.chunk_buffer = buffer_out + i * chunk_size;
+		c.completed = false;
+		chunks[i] = c;
 	}
 
 	std::mutex chunks_mutex;

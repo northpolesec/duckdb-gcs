@@ -32,3 +32,8 @@ install(
   EXPORT "${DUCKDB_EXPORT_SET}"
   LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
   ARCHIVE DESTINATION "${INSTALL_LIB_DIR}")
+
+# Add unit tests subdirectory if building tests
+if(BUILD_UNITTESTS)
+  add_subdirectory(test/cpp)
+endif()

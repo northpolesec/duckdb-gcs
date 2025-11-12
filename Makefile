@@ -23,38 +23,33 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 # Build and run unit tests (release)
 unittest: unittest_release
 
-# Build with unit tests enabled and run them (release)
-unittest_release: BUILD_UNITTESTS=1
-unittest_release:
+benchmark: benchmark_release
+
+# Build unit tests (release)
+buildunittest_release:
 	@echo "Building extension with unit tests (release)..."
 	BUILD_UNITTESTS=1 $(MAKE) release
-	@echo "Running unit tests..."
-	@if [ -f build/release/extension/gcs/test/cpp/gcs_unit_tests ]; then \
-		build/release/extension/gcs/test/cpp/gcs_unit_tests; \
-	else \
-		echo "Error: Unit test binary not found. Make sure BUILD_UNITTESTS=1 was set during build."; \
-		exit 1; \
-	fi
 
-# Build with unit tests enabled and run them (debug)
-unittest_debug: BUILD_UNITTESTS=1
-unittest_debug:
+# Build unit tests (debug)
+buildunittest_release:
 	@echo "Building extension with unit tests (debug)..."
 	BUILD_UNITTESTS=1 $(MAKE) debug
+
+# Build with unit tests enabled and run them (release)
+unittest_release: buildunittest_release
 	@echo "Running unit tests..."
-	@if [ -f build/debug/extension/gcs/test/cpp/gcs_unit_tests ]; then \
-		build/debug/extension/gcs/test/cpp/gcs_unit_tests; \
-	else \
-		echo "Error: Unit test binary not found. Make sure BUILD_UNITTESTS=1 was set during build."; \
-		exit 1; \
-	fi
+	build/release/extension/gcs/test/cpp/gcs_unit_tests
+
+benchmark_release: buildunittest_release
+	@echo "Running benchmarks..."
+	build/release/extension/gcs/test/cpp/gcs_unit_tests [benchmark]
+
+# Build with unit tests enabled and run them (debug)
+unittest_debug: buildunittest_debug
+	@echo "Running unit tests..."
+	build/debug/extension/gcs/test/cpp/gcs_unit_tests
 
 # Run unit tests with verbose output
-unittest_verbose:
-	@echo "Running unit tests with verbose output..."
-	@if [ -f build/release/extension/gcs/test/cpp/gcs_unit_tests ]; then \
-		build/release/extension/gcs/test/cpp/gcs_unit_tests -s; \
-	else \
-		echo "Error: Unit test binary not found. Run 'make unittest' first."; \
-		exit 1; \
-	fi
+unittest_verbose: buildunittest_debug
+	@echo "Running unit tests..."
+	build/release/extension/gcs/test/cpp/gcs_unit_tests -s

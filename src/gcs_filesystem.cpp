@@ -586,7 +586,6 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 }
 
 void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
-	auto &gcs_context = handle.context->As<GCSContextState>();
 	auto opts = handle.read_options;
 
 	idx_t parallel_threshold = opts.buffer_size * 2;

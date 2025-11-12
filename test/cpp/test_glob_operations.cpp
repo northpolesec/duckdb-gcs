@@ -1,8 +1,6 @@
 #include "catch.hpp"
-#include "gcs_test_helper.hpp"
 #include "gcs_filesystem.hpp"
 #include "gcs_parsed_url.hpp"
-#include <algorithm>
 
 using namespace duckdb;
 

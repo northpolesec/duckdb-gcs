@@ -11,8 +11,10 @@
 #include "duckdb/function/scalar/string_common.hpp"
 #include "gcs_secret.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <fstream>
+#include <future>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -610,83 +612,88 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 	idx_t num_chunks = (buffer_out_len + chunk_size - 1) / chunk_size;
 	idx_t max_concurrent = std::min(static_cast<idx_t>(opts.transfer_concurrency), num_chunks);
 
-	// Structure to hold chunk data and results
-	struct ChunkRead {
-		idx_t chunk_idx;
+	// Shared flag to signal when an error has occurred, allowing early termination
+	std::atomic<bool> error_occurred{false};
+
+	// Structure to hold chunk information
+	struct ChunkInfo {
 		idx_t chunk_offset;
 		idx_t chunk_size;
 		char *chunk_buffer;
-		std::exception_ptr exception;
-		bool completed;
 	};
 
-	std::vector<ChunkRead> chunks(num_chunks);
+	std::vector<ChunkInfo> chunks(num_chunks);
 	for (idx_t i = 0; i < num_chunks; i++) {
-		ChunkRead c;
-		c.chunk_idx = i;
-		c.chunk_offset = file_offset + i * chunk_size;
-		c.chunk_size = std::min(chunk_size, buffer_out_len - i * chunk_size);
-		c.chunk_buffer = buffer_out + i * chunk_size;
-		c.completed = false;
-		chunks[i] = c;
+		chunks[i].chunk_offset = file_offset + i * chunk_size;
+		chunks[i].chunk_size = std::min(chunk_size, buffer_out_len - i * chunk_size);
+		chunks[i].chunk_buffer = buffer_out + i * chunk_size;
 	}
 
-	std::mutex chunks_mutex;
+	// Launch async tasks respecting max_concurrent limit
+	std::vector<std::future<void>> futures;
+	futures.reserve(max_concurrent);
 	idx_t next_chunk = 0;
-	std::vector<std::thread> workers;
-	workers.reserve(max_concurrent);
 
-	// Worker function to read chunks
-	auto worker_func = [&]() {
-		while (true) {
-			idx_t current_chunk;
-			{
-				std::scoped_lock lock(chunks_mutex);
-				if (next_chunk >= num_chunks) {
-					break;
-				}
-				current_chunk = next_chunk++;
+	// Helper to launch a chunk read
+	auto launch_chunk = [&](idx_t chunk_idx) -> std::future<void> {
+		const auto &chunk = chunks[chunk_idx];
+		return std::async(std::launch::async, [&handle, chunk, &error_occurred]() {
+			// Check flag before doing expensive network operation
+			if (error_occurred.load(std::memory_order_acquire)) {
+				return;
 			}
 
-			auto &chunk = chunks[current_chunk];
-			try {
-				auto reader = handle.GetClient().ReadObject(
-				    handle.bucket, handle.object_key,
-				    gcs::ReadRange(chunk.chunk_offset, chunk.chunk_offset + chunk.chunk_size));
+			auto reader = handle.GetClient().ReadObject(
+			    handle.bucket, handle.object_key,
+			    gcs::ReadRange(chunk.chunk_offset, chunk.chunk_offset + chunk.chunk_size));
 
-				if (!reader) {
-					throw IOException("Failed to read chunk from GCS: " + reader.status().message());
-				}
-
-				reader.read(chunk.chunk_buffer, chunk.chunk_size);
-				if (!reader) {
-					throw IOException("Failed to read chunk data from GCS");
-				}
-				chunk.completed = true;
-			} catch (...) {
-				chunk.exception = std::current_exception();
-				chunk.completed = true;
+			if (!reader) {
+				error_occurred.store(true, std::memory_order_release);
+				throw IOException("Failed to read chunk from GCS: " + reader.status().message());
 			}
-		}
+
+			// Check flag again before reading data
+			if (error_occurred.load(std::memory_order_acquire)) {
+				return;
+			}
+
+			reader.read(chunk.chunk_buffer, chunk.chunk_size);
+			if (!reader) {
+				error_occurred.store(true, std::memory_order_release);
+				throw IOException("Failed to read chunk data from GCS");
+			}
+		});
 	};
 
-	// Launch worker threads
-	for (idx_t i = 0; i < max_concurrent; i++) {
-		workers.emplace_back(worker_func);
-	}
-
-	// Wait for all workers to complete
-	for (auto &worker : workers) {
-		worker.join();
-	}
-
-	// Check for errors and verify all chunks completed
-	for (const auto &chunk : chunks) {
-		if (!chunk.completed) {
-			throw IOException("Chunk read did not complete");
+	// Launch initial batch of futures up to max_concurrent
+	while (next_chunk < num_chunks && futures.size() < max_concurrent) {
+		if (error_occurred.load(std::memory_order_acquire)) {
+			break;
 		}
-		if (chunk.exception) {
-			std::rethrow_exception(chunk.exception);
+		futures.push_back(launch_chunk(next_chunk++));
+	}
+
+	// Process futures as they complete, launching new ones to maintain max_concurrent
+	while (!futures.empty()) {
+		// Wait for at least one future to complete
+		for (auto it = futures.begin(); it != futures.end();) {
+			if (it->wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+				// This will throw if the task encountered an exception
+				it->get();
+				it = futures.erase(it);
+
+				// Launch next chunk if available and no error occurred
+				if (next_chunk < num_chunks && !error_occurred.load(std::memory_order_acquire)) {
+					futures.push_back(launch_chunk(next_chunk++));
+				}
+			} else {
+				++it;
+			}
+		}
+
+		// Small sleep to avoid busy-waiting
+		if (!futures.empty()) {
+			std::this_thread::sleep_for(std::chrono::microseconds(100));
 		}
 	}
 }

@@ -25,14 +25,16 @@ force its usage.
 
 ### Checkout
 
-````bash
+```bash
 # Clone the repository with submodules (REQUIRED)
 git clone --recurse-submodules https://github.com/northpolesec/duckdb-gcs.git
 cd duckdb-gcs
+```
 
+```bash
 # If you already cloned without submodules, initialize them:
 # git submodule update --init --recursive
-
+```
 
 **Note:** The `--recurse-submodules` flag is essential. This project requires:
 
@@ -71,6 +73,36 @@ The main binaries that will be built are:
 - `duckdb` is the binary for the duckdb shell with the extension code automatically loaded.
 - `unittest` is the test runner of duckdb. Again, the extension is already linked into the binary.
 - `gcs.duckdb_extension` is the loadable binary as it would be distributed.
+
+### Tests
+
+The extension has unit tests and a very basic DuckDB integration test.
+
+#### DuckDB Integration Test
+
+DuckDB extensions, by default, have a test that launches DuckDB and runs queries
+to see if the extension is working properly. To run this test:
+
+```bash
+make test
+```
+
+#### Unit Tests
+
+The extension also has extensive unit tests using mocks for GCS itself, to ensure
+globbing, caching, threading, etc. are working correctly.
+
+To run the unit tests:
+
+```
+make unittest
+```
+
+The unit test target doesn't run the benchmark tests by default. To run the benchmarks:
+
+```
+make benchmark
+```
 
 ### Quick Start
 

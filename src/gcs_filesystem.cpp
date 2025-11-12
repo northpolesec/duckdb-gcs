@@ -613,7 +613,7 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 	idx_t max_concurrent = std::min(static_cast<idx_t>(opts.transfer_concurrency), num_chunks);
 
 	// Shared flag to signal when an error has occurred, allowing early termination
-	std::atomic<bool> error_occurred{false};
+	std::atomic<bool> error_occurred {false};
 
 	// Structure to hold chunk information
 	struct ChunkInfo {

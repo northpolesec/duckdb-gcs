@@ -36,5 +36,6 @@ set_target_properties(${TEST_TARGET} PROPERTIES CXX_STANDARD 17
 
 # Add compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(${TEST_TARGET} PRIVATE -Wall -Wextra -DCATCH_CONFIG_ENABLE_BENCHMARKING=1)
+  target_compile_options(
+    ${TEST_TARGET} PRIVATE -Wall -Wextra -DCATCH_CONFIG_ENABLE_BENCHMARKING=1)
 endif()

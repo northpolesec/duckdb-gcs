@@ -26,10 +26,10 @@ TEST_CASE("GCS Benchmark: Large-scale file metadata operations", "[gcs][!benchma
 			for (int i = 0; i < 10000; i++) {
 				auto key = "data/year=2024/month=01/file_" + std::to_string(i) + ".parquet";
 				auto metadata = gcs::ObjectMetadata()
-														.set_bucket("benchmark-bucket")
-														.set_name(key)
-														.set_size(1024 * 1024 * 10) // 10MB files
-														.set_generation(1);
+				                    .set_bucket("benchmark-bucket")
+				                    .set_name(key)
+				                    .set_size(1024 * 1024 * 10) // 10MB files
+				                    .set_generation(1);
 
 				context->SetCachedMetadata("benchmark-bucket", key, metadata);
 			}
@@ -127,8 +127,8 @@ TEST_CASE("GCS Benchmark: Large-scale list cache operations", "[gcs][!benchmark]
 				vector<OpenFileInfo> files;
 
 				for (int file = 0; file < 100; file++) {
-					files.push_back(OpenFileInfo("gs://benchmark-bucket/" + prefix + "file_" + std::to_string(file) +
-																			".parquet"));
+					files.push_back(
+					    OpenFileInfo("gs://benchmark-bucket/" + prefix + "file_" + std::to_string(file) + ".parquet"));
 				}
 
 				context->SetCachedList("benchmark-bucket", prefix, files);
@@ -148,8 +148,8 @@ TEST_CASE("GCS Benchmark: Large-scale list cache operations", "[gcs][!benchmark]
 			vector<OpenFileInfo> files;
 
 			for (int file = 0; file < 100; file++) {
-				files.push_back(OpenFileInfo("gs://benchmark-bucket/" + prefix + "file_" + std::to_string(file) +
-				                             ".parquet"));
+				files.push_back(
+				    OpenFileInfo("gs://benchmark-bucket/" + prefix + "file_" + std::to_string(file) + ".parquet"));
 			}
 
 			context->SetCachedList("benchmark-bucket", prefix, files);
@@ -182,8 +182,8 @@ TEST_CASE("GCS Benchmark: Large-scale list cache operations", "[gcs][!benchmark]
 					vector<OpenFileInfo> files;
 
 					for (int file = 0; file < 100; file++) {
-						files.push_back(OpenFileInfo("gs://benchmark-bucket/" + prefix + "data_" + std::to_string(file) +
-																				".parquet"));
+						files.push_back(OpenFileInfo("gs://benchmark-bucket/" + prefix + "data_" +
+						                             std::to_string(file) + ".parquet"));
 					}
 
 					context->SetCachedList("benchmark-bucket", prefix, files);
@@ -307,10 +307,10 @@ TEST_CASE("GCS Benchmark: Cache eviction under load", "[gcs][!benchmark]") {
 					cache_misses++;
 					// Simulate fetching from GCS and caching
 					auto metadata = gcs::ObjectMetadata()
-															.set_bucket("benchmark-bucket")
-															.set_name(key)
-															.set_size(1024 * 1024 * 10)
-															.set_generation(1);
+					                    .set_bucket("benchmark-bucket")
+					                    .set_name(key)
+					                    .set_size(1024 * 1024 * 10)
+					                    .set_generation(1);
 
 					context->SetCachedMetadata("benchmark-bucket", key, metadata);
 				}
@@ -351,10 +351,10 @@ TEST_CASE("GCS Benchmark: Cache eviction under load", "[gcs][!benchmark]") {
 						if (!cached.has_value()) {
 							// Cache miss, add to cache
 							auto metadata = gcs::ObjectMetadata()
-																	.set_bucket("benchmark-bucket")
-																	.set_name(key)
-																	.set_size(1024 * 1024)
-																	.set_generation(1);
+							                    .set_bucket("benchmark-bucket")
+							                    .set_name(key)
+							                    .set_size(1024 * 1024)
+							                    .set_generation(1);
 
 							context->SetCachedMetadata("benchmark-bucket", key, metadata);
 						}
@@ -396,7 +396,7 @@ TEST_CASE("GCS Benchmark: Realistic workload simulation", "[gcs][!benchmark]") {
 
 				for (int file = 0; file < 20; file++) {
 					files.push_back(
-							OpenFileInfo("gs://datalake-bucket/" + prefix + "data_" + std::to_string(file) + ".parquet"));
+					    OpenFileInfo("gs://datalake-bucket/" + prefix + "data_" + std::to_string(file) + ".parquet"));
 				}
 
 				context->SetCachedList("datalake-bucket", prefix, files);
@@ -415,10 +415,10 @@ TEST_CASE("GCS Benchmark: Realistic workload simulation", "[gcs][!benchmark]") {
 
 						// Simulate fetching metadata
 						auto metadata = gcs::ObjectMetadata()
-																.set_bucket("datalake-bucket")
-																.set_name(object_key)
-																.set_size(1024 * 1024 * 128) // 128MB files
-																.set_generation(1);
+						                    .set_bucket("datalake-bucket")
+						                    .set_name(object_key)
+						                    .set_size(1024 * 1024 * 128) // 128MB files
+						                    .set_generation(1);
 
 						context->SetCachedMetadata("datalake-bucket", object_key, metadata);
 
@@ -432,7 +432,7 @@ TEST_CASE("GCS Benchmark: Realistic workload simulation", "[gcs][!benchmark]") {
 			}
 
 			std::cout << "  Total files: " << total_files << ", Total size: " << (total_size / (1024 * 1024)) << " MB"
-								<< std::endl;
+			          << std::endl;
 			REQUIRE(total_files == 1000);
 		};
 	}
@@ -467,8 +467,8 @@ TEST_CASE("GCS Benchmark: Realistic workload simulation", "[gcs][!benchmark]") {
 							// Simulate glob operation
 							vector<OpenFileInfo> files;
 							for (int f = 0; f < 10; f++) {
-								files.push_back(
-										OpenFileInfo("gs://shared-bucket/" + prefix + "file_" + std::to_string(f) + ".parquet"));
+								files.push_back(OpenFileInfo("gs://shared-bucket/" + prefix + "file_" +
+								                             std::to_string(f) + ".parquet"));
 							}
 							context->SetCachedList("shared-bucket", prefix, files);
 						}
@@ -481,10 +481,10 @@ TEST_CASE("GCS Benchmark: Realistic workload simulation", "[gcs][!benchmark]") {
 								auto cached_meta = context->GetCachedMetadata("shared-bucket", object_key);
 								if (!cached_meta.has_value()) {
 									auto metadata = gcs::ObjectMetadata()
-																			.set_bucket("shared-bucket")
-																			.set_name(object_key)
-																			.set_size(1024 * 1024 * 10)
-																			.set_generation(1);
+									                    .set_bucket("shared-bucket")
+									                    .set_name(object_key)
+									                    .set_size(1024 * 1024 * 10)
+									                    .set_generation(1);
 
 									context->SetCachedMetadata("shared-bucket", object_key, metadata);
 								}

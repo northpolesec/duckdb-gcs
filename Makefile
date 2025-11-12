@@ -31,7 +31,7 @@ buildunittest_release:
 	BUILD_UNITTESTS=1 $(MAKE) release
 
 # Build unit tests (debug)
-buildunittest_release:
+buildunittest_debug:
 	@echo "Building extension with unit tests (debug)..."
 	BUILD_UNITTESTS=1 $(MAKE) debug
 
@@ -42,7 +42,7 @@ unittest_release: buildunittest_release
 
 benchmark_release: buildunittest_release
 	@echo "Running benchmarks..."
-	build/release/extension/gcs/test/cpp/gcs_unit_tests [benchmark]
+	build/release/extension/gcs/test/cpp/gcs_unit_tests [!benchmark]
 
 # Build with unit tests enabled and run them (debug)
 unittest_debug: buildunittest_debug

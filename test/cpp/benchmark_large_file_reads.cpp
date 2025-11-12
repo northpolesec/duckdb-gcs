@@ -316,7 +316,6 @@ TEST_CASE("GCS Benchmark: Cache eviction under load", "[gcs][!benchmark]") {
 				}
 			}
 
-			std::cout << "  Cache hits: " << cache_hits << ", misses: " << cache_misses << std::endl;
 			REQUIRE(cache_hits + cache_misses == 10000);
 		};
 	}
@@ -431,8 +430,6 @@ TEST_CASE("GCS Benchmark: Realistic workload simulation", "[gcs][!benchmark]") {
 				}
 			}
 
-			std::cout << "  Total files: " << total_files << ", Total size: " << (total_size / (1024 * 1024)) << " MB"
-			          << std::endl;
 			REQUIRE(total_files == 1000);
 		};
 	}

@@ -8,7 +8,12 @@ find_package(google_cloud_cpp_storage REQUIRED)
 
 # Collect test source files
 set(TEST_SOURCES test_main.cpp test_cache_behavior.cpp test_file_operations.cpp
-                 test_glob_operations.cpp benchmark_large_file_reads.cpp)
+                 test_glob_operations.cpp)
+
+# Add benchmarks only on Clang/GNU
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  list(APPEND TEST_SOURCES benchmark_large_file_reads.cpp)
+endif()
 
 # Create the test executable
 add_executable(${TEST_TARGET} ${TEST_SOURCES})
@@ -35,5 +40,8 @@ set_target_properties(${TEST_TARGET} PROPERTIES CXX_STANDARD 17
                                                 CXX_STANDARD_REQUIRED ON)
 
 # Add compiler flags
-target_compile_options(
-  ${TEST_TARGET} PRIVATE -Wall -Wextra -DCATCH_CONFIG_ENABLE_BENCHMARKING=1)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(
+    ${TEST_TARGET} PRIVATE -Wall -Wextra -DCATCH_CONFIG_ENABLE_BENCHMARKING=1)
+endif()
+

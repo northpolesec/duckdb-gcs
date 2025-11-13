@@ -44,4 +44,3 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(
     ${TEST_TARGET} PRIVATE -Wall -Wextra -DCATCH_CONFIG_ENABLE_BENCHMARKING=1)
 endif()
-

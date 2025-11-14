@@ -14,17 +14,21 @@ set(EXTENSION_SOURCES
     src/gcs_secret.cpp)
 
 set(PARAMETERS "-warnings")
+add_definitions("-DGOOGLE_CLOUD_CPP_ENABLE=storage-grpc")
+add_definitions("-DGOOGLE_CLOUD_CPP_STORAGE_ENABLE_GRPC=ON")
+
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${EXTENSION_SOURCES})
 
 find_package(google_cloud_cpp_storage REQUIRED)
+find_package(google_cloud_cpp_storage_grpc REQUIRED)
 
 # Static lib
 target_include_directories(${EXTENSION_NAME} PUBLIC google-cloud-cpp::storage)
-target_link_libraries(${EXTENSION_NAME} google-cloud-cpp::storage)
+target_link_libraries(${EXTENSION_NAME} google-cloud-cpp::storage google-cloud-cpp::storage_grpc)
 
 # Loadable binary
-target_link_libraries(${TARGET_NAME}_loadable_extension google-cloud-cpp::storage)
+target_link_libraries(${TARGET_NAME}_loadable_extension google-cloud-cpp::storage google-cloud-cpp::storage_grpc)
 target_include_directories(${TARGET_NAME}_loadable_extension PRIVATE google-cloud-cpp::storage)
 
 install(

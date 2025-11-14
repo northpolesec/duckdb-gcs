@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "google-cloud-cpp",
-      "features": [ "storage" ]
+      "features": [ "storage", "storage-grpc" ]
     },
     "vcpkg-cmake"
   ],

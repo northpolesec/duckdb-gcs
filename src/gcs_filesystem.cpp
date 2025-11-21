@@ -472,7 +472,7 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 				continue;
 			}
 
-			std::string full_path = parsed_url.prefix + "://" + object_metadata->id();
+			std::string full_path = parsed_url.prefix + "://" + parsed_url.bucket + "/" + object_metadata->name();
 			results.push_back(OpenFileInfo(full_path));
 
 			// Also cache metadata for this file - we've already got it, we might as well

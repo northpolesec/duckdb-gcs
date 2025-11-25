@@ -71,11 +71,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Increase for stable files, decrease if files change frequently.",
 	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.metadata_cache_ttl_seconds));
 
-	config.AddExtensionOption(
-	    "gcs_list_cache_ttl",
-	    "Time-to-live in seconds for cached object listing results (used in glob operations). "
-	    "Default is 60 seconds. Increase for stable directories, decrease if objects are added/removed frequently.",
-	    LogicalType::INTEGER, Value::INTEGER(default_read_options.list_cache_ttl_seconds));
+	config.AddExtensionOption("gcs_list_cache_ttl",
+	                          "Time-to-live in seconds for cached object listing results (used in glob operations). "
+	                          "Default is 60 seconds. Increase for stable directories, decrease if objects are "
+	                          "added/removed frequently.",
+	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.list_cache_ttl_seconds));
 
 	config.AddExtensionOption("gcs_max_metadata_cache_entries",
 	                          "Maximum number of metadata cache entries to prevent unbounded memory growth. "
@@ -91,6 +91,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Number of concurrent worker threads to use when reading. "
 	                          "Default is 5.",
 	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.transfer_concurrency));
+
+	config.AddExtensionOption("gcs_enable_grpc",
+	                          "Use gRPC for connection to Google Cloud Storage. Can improve performance, "
+	                          "especially when being used from Google Cloud. Default is false.",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(default_read_options.enable_grpc));
 }
 
 void GcsExtension::Load(ExtensionLoader &loader) {

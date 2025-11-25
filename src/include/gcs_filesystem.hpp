@@ -1,6 +1,7 @@
 #pragma once
 
 #include <google/cloud/storage/client.h>
+#include <google/cloud/storage/grpc_plugin.h>
 #include <google/cloud/storage/object_metadata.h>
 #include <unordered_map>
 #include <mutex>
@@ -30,6 +31,8 @@ struct GCSReadOptions {
 	int32_t metadata_cache_ttl_seconds = 300;
 	int32_t list_cache_ttl_seconds = 60;
 	bool enable_caches = true;
+
+	bool enable_grpc = false;
 
 	// Cache size limits to prevent unbounded memory growth
 	idx_t max_metadata_cache_entries = 10000;

@@ -8,7 +8,6 @@
 #include "duckdb/catalog/catalog_transaction.hpp"
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/common/file_system.hpp"
-#include "duckdb/function/scalar/string_common.hpp"
 #include "gcs_secret.hpp"
 
 #include <atomic>
@@ -438,69 +437,21 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 
 	auto &gcs_context = context->As<GCSContextState>();
 
-	// Convert glob pattern to prefix and suffix
-	std::string prefix = parsed_url.object_key;
-	std::string pattern = "";
-
-	// Find the first wildcard
-	size_t wildcard_pos = prefix.find_first_of("*?[");
-	if (wildcard_pos != std::string::npos) {
-		// Split at the last directory separator before the wildcard
-		size_t last_sep = prefix.rfind('/', wildcard_pos);
-		if (last_sep != std::string::npos) {
-			pattern = prefix.substr(last_sep + 1);
-			prefix = prefix.substr(0, last_sep + 1);
-		} else {
-			pattern = prefix;
-			prefix = "";
-		}
-	}
+	// The parsed key may be a file, or it could be a glob pattern to match, we'll
+	// always treat it as a pattern.
+	std::string pattern = parsed_url.object_key;
 
 	// Check cache first
-	auto cached_results = gcs_context.GetCachedList(parsed_url.bucket, prefix);
+	auto cached_results = gcs_context.GetCachedList(parsed_url.bucket, pattern);
 	if (cached_results.has_value()) {
-		if (pattern.empty()) {
-			return cached_results.value();
-		}
-
-		// Filter cached results by pattern if needed
-		for (const auto &info : cached_results.value()) {
-			// Extract object name from full path
-			std::string full_path = info.path;
-			size_t bucket_pos = full_path.find("://");
-
-			if (bucket_pos == std::string::npos) {
-				continue;
-			}
-
-			size_t path_start = full_path.find('/', bucket_pos + 3);
-
-			if (path_start == std::string::npos) {
-				continue;
-			}
-
-			std::string name_part = full_path.substr(path_start + 1);
-			if (name_part.length() < prefix.length()) {
-				continue;
-			}
-
-			name_part = name_part.substr(prefix.length());
-			if (duckdb::Glob(name_part.c_str(), name_part.length(), pattern.c_str(), pattern.length())) {
-				results.push_back(info);
-			}
-		}
-		if (!results.empty()) {
-			return results;
-		}
+		return cached_results.value();
 	}
 
-	// List objects with prefix
+	// List objects with pattern
 	try {
 		// TODO: Add pagination if the number of results is > the max specified here
-		auto list_request = gcs_context.GetClient().ListObjects(
-		    parsed_url.bucket, gcs::Prefix(prefix),
-		    gcs::MaxResults(10000) // Limit results to prevent hanging on large buckets
-		);
+		auto list_request =
+		    gcs_context.GetClient().ListObjects(parsed_url.bucket, gcs::MatchGlob(pattern), gcs::MaxResults(10000));
 
 		for (auto &&object_metadata : list_request) {
 			if (!object_metadata) {
@@ -522,21 +473,15 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 			}
 
 			std::string full_path = parsed_url.prefix + "://" + parsed_url.bucket + "/" + object_metadata->name();
+			results.push_back(OpenFileInfo(full_path));
 
-			// If we have a pattern, check if the object name matches using proper glob matching
-			if (!pattern.empty()) {
-				std::string name_part = object_metadata->name().substr(prefix.length());
-				// Use DuckDB's Glob function for proper pattern matching
-				if (duckdb::Glob(name_part.c_str(), name_part.length(), pattern.c_str(), pattern.length())) {
-					results.push_back(OpenFileInfo(full_path));
-				}
-			} else {
-				results.push_back(OpenFileInfo(full_path));
-			}
+			// Also cache metadata for this file - we've already got it, we might as well
+			// use it instead of retrieving it again.
+			gcs_context.SetCachedMetadata(object_metadata->bucket(), object_metadata->name(), *object_metadata);
 		}
 
 		// Cache the results
-		gcs_context.SetCachedList(parsed_url.bucket, prefix, results);
+		gcs_context.SetCachedList(parsed_url.bucket, pattern, results);
 	} catch (const std::exception &e) {
 		throw IOException("Failed to list GCS objects. Error: " + std::string(e.what()) +
 		                  "\nPlease check:\n"

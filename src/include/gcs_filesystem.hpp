@@ -98,7 +98,6 @@ private:
 	std::mutex cache_mutex;
 	std::unordered_map<std::string, MetadataCacheEntry> metadata_cache;
 	std::unordered_map<std::string, ListCacheEntry> list_cache;
-
 	void EvictLRUMetadataEntryLocked();
 	void EvictLRUListEntryLocked();
 };
@@ -111,12 +110,22 @@ public:
 	bool PostConstruct();
 	void TryAddLogger(FileOpener &opener);
 	void Close() override {
-		// No explicit cleanup needed.
+		if (write_stream != nullptr) {
+			write_stream->Close();
+			auto metadata = write_stream->metadata();
+			if (!metadata) {
+				fprintf(stderr, "Failed to finalize write from GCS: %s", metadata.status().message().c_str());
+				fflush(stderr);
+			}
+			write_stream = nullptr;
+		}
 	}
 
 	inline gcs::Client GetClient() {
 		return context->GetClient();
 	}
+
+	void WriteInto(char *buffer, int64_t nr_bytes);
 
 	FileOpenFlags flags;
 
@@ -141,6 +150,9 @@ public:
 	// Context is owned by the ClientContext's registered_state, not by this handle.
 	// This prevents circular references since the context never holds references to handles.
 	shared_ptr<GCSContextState> context;
+
+private:
+	unique_ptr<google::cloud::storage::ObjectWriteStream> write_stream = nullptr;
 };
 
 class GCSFileSystem : public FileSystem {
@@ -175,6 +187,7 @@ public:
 	int64_t GetFileSize(FileHandle &handle) override;
 	timestamp_t GetLastModifiedTime(FileHandle &handle) override;
 	void Seek(FileHandle &handle, idx_t location) override;
+	idx_t SeekPosition(FileHandle &handle) override;
 	void FileSync(FileHandle &handle) override;
 
 	bool LoadFileInfo(GCSFileHandle &handle);
@@ -185,6 +198,8 @@ public:
 
 	vector<OpenFileInfo> Glob(const string &path, FileOpener *opener = nullptr) override;
 	bool FileExists(const std::string &filename, optional_ptr<FileOpener> opener = nullptr) override;
+	void Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override;
+	int64_t Write(FileHandle &handle, void *buffer, int64_t nr_bytes) override;
 
 protected:
 	unique_ptr<FileHandle> OpenFileExtended(const OpenFileInfo &info, FileOpenFlags flags,

@@ -109,6 +109,7 @@ public:
 
 	bool PostConstruct();
 	void TryAddLogger(FileOpener &opener);
+
 	void Close() override {
 		if (write_stream != nullptr) {
 			write_stream->Close();
@@ -121,11 +122,15 @@ public:
 		}
 	}
 
+	~GCSFileHandle() override {
+		Close();
+	}
+
 	inline gcs::Client GetClient() {
 		return context->GetClient();
 	}
 
-	void WriteInto(char *buffer, int64_t nr_bytes);
+	int64_t WriteInto(char *buffer, int64_t nr_bytes);
 
 	FileOpenFlags flags;
 

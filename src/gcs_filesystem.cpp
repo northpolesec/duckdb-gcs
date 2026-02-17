@@ -197,19 +197,19 @@ void GCSFileHandle::TryAddLogger(FileOpener &opener) {
 	}
 }
 
-void GCSFileHandle::WriteInto(char *buffer, int64_t nr_bytes) {
+int64_t GCSFileHandle::WriteInto(char *buffer, int64_t nr_bytes) {
 	// init Write stream if needed
 	if (write_stream == nullptr) {
 		auto stream =
 		    context->GetClient().WriteObject(bucket, object_key, google::cloud::storage::AutoFinalizeDisabled());
 		write_stream = make_uniq<google::cloud::storage::ObjectWriteStream>(std::move(stream));
 	}
-	auto status = write_stream->last_status();
-	if (!status.ok()) {
-		throw IOException("Failed to write from GCS: " + status.message());
-	}
 	write_stream->write(buffer, nr_bytes);
+	if (write_stream->bad()) {
+		throw IOException("Failed to write from GCS: " + write_stream->last_status().message());
+	}
 	file_offset += nr_bytes;
+	return nr_bytes;
 }
 
 // GCSFileSystem implementation
@@ -781,8 +781,8 @@ void GCSFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes, id
 
 int64_t GCSFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes) {
 	auto &gsfh = handle.Cast<GCSFileHandle>();
-	Write(handle, buffer, nr_bytes, gsfh.file_offset);
-	return nr_bytes;
+	auto write_buffer = char_ptr_cast(buffer);
+	return gsfh.WriteInto(write_buffer, nr_bytes);
 }
 
 } // namespace duckdb

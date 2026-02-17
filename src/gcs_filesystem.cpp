@@ -206,7 +206,7 @@ int64_t GCSFileHandle::WriteInto(char *buffer, int64_t nr_bytes) {
 	}
 	write_stream->write(buffer, nr_bytes);
 	if (write_stream->bad()) {
-		throw IOException("Failed to write from GCS: " + write_stream->last_status().message());
+		throw IOException("Failed to write to GCS: " + write_stream->last_status().message());
 	}
 	file_offset += nr_bytes;
 	return nr_bytes;

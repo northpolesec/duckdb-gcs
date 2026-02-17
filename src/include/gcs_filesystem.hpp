@@ -1,7 +1,9 @@
 #pragma once
 
 #include <google/cloud/storage/client.h>
+#ifdef GCS_ENABLE_GRPC
 #include <google/cloud/storage/grpc_plugin.h>
+#endif
 #include <google/cloud/storage/object_metadata.h>
 #include <unordered_map>
 #include <mutex>

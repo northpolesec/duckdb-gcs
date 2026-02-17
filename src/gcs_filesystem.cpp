@@ -35,9 +35,11 @@ gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> cre
 		options.set<google::cloud::CARootsFilePathOption>(ca_roots_path);
 	}
 
+#ifdef GCS_ENABLE_GRPC
 	if (read_options.enable_grpc) {
 		return gcs::MakeGrpcClient(options);
 	}
+#endif
 	return gcs::Client(options);
 }
 
@@ -421,6 +423,11 @@ GCSReadOptions GCSFileSystem::ParseGCSReadOptions(optional_ptr<FileOpener> opene
 		}
 		options.transfer_concurrency = concurrency;
 	}
+#ifdef GCS_ENABLE_GRPC
+	if (FileOpener::TryGetCurrentSetting(opener, "gcs_enable_grpc", value)) {
+		options.enable_grpc = value.GetValue<bool>();
+	}
+#endif
 
 	return options;
 }

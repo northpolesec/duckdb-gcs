@@ -92,10 +92,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Default is 5.",
 	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.transfer_concurrency));
 
+#ifdef GCS_ENABLE_GRPC
 	config.AddExtensionOption("gcs_enable_grpc",
 	                          "Use gRPC for connection to Google Cloud Storage. Can improve performance, "
 	                          "especially when being used from Google Cloud. Default is false.",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(default_read_options.enable_grpc));
+#endif
 }
 
 void GcsExtension::Load(ExtensionLoader &loader) {

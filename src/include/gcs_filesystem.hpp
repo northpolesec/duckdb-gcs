@@ -64,6 +64,7 @@ public:
 	std::optional<gcs::ObjectMetadata> GetCachedMetadata(const std::string &bucket, const std::string &object_key);
 	void SetCachedMetadata(const std::string &bucket, const std::string &object_key,
 	                       const gcs::ObjectMetadata &metadata);
+	void InvalidateCachedMetadata(const std::string &bucket, const std::string &object_key);
 	std::optional<vector<OpenFileInfo>> GetCachedList(const std::string &bucket, const std::string &prefix);
 	void SetCachedList(const std::string &bucket, const std::string &prefix, const vector<OpenFileInfo> &results);
 
@@ -117,6 +118,10 @@ public:
 			if (!metadata) {
 				fprintf(stderr, "Failed to finalize write from GCS: %s", metadata.status().message().c_str());
 				fflush(stderr);
+			} else {
+				// Update the cache with the new metadata so subsequent reads
+				// use the correct generation instead of a stale one.
+				context->SetCachedMetadata(bucket, object_key, *metadata);
 			}
 			write_stream = nullptr;
 		}
@@ -218,6 +223,7 @@ protected:
 	duckdb::unique_ptr<GCSFileHandle> CreateHandle(const OpenFileInfo &info, FileOpenFlags flags,
 	                                               optional_ptr<FileOpener> opener);
 	void ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len);
+	void ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len);
 
 	const std::string &GetContextPrefix() const;
 	shared_ptr<GCSContextState> GetOrCreateStorageContext(optional_ptr<FileOpener> opener, const string &path,

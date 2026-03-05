@@ -135,6 +135,12 @@ void GCSContextState::SetCachedList(const std::string &bucket, const std::string
 	list_cache[key] = {results, now, now};
 }
 
+void GCSContextState::InvalidateCachedMetadata(const std::string &bucket, const std::string &object_key) {
+	auto key = MakeMetadataKey(bucket, object_key);
+	std::scoped_lock lock(cache_mutex);
+	metadata_cache.erase(key);
+}
+
 void GCSContextState::EvictLRUMetadataEntryLocked() {
 	if (metadata_cache.empty()) {
 		return;
@@ -556,6 +562,25 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 }
 
 void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
+	try {
+		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
+	} catch (const IOException &e) {
+		// Check if this is a NotFound error due to stale generation; retry once
+		std::string msg(e.what());
+		if (msg.find("NOT_FOUND") == std::string::npos) {
+			throw;
+		}
+		// Refresh metadata to get the current generation and retry
+		handle.context->InvalidateCachedMetadata(handle.bucket, handle.object_key);
+		handle.length = 0;
+		handle.generation = 0;
+		LoadFileInfo(handle);
+		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
+	}
+}
+
+void GCSFileSystem::ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, char *buffer_out,
+                                      idx_t buffer_out_len) {
 	auto opts = handle.read_options;
 
 	idx_t parallel_threshold = opts.buffer_size * 2;

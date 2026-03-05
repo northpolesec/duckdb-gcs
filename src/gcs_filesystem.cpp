@@ -27,8 +27,7 @@ class GCSStatusException : public IOException {
 public:
 	google::cloud::StatusCode status_code;
 
-	GCSStatusException(google::cloud::StatusCode code, const std::string &msg)
-	    : IOException(msg), status_code(code) {
+	GCSStatusException(google::cloud::StatusCode code, const std::string &msg) : IOException(msg), status_code(code) {
 	}
 };
 
@@ -601,8 +600,7 @@ void GCSFileSystem::ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, 
 		    handle.GetClient().ReadObject(handle.bucket, handle.object_key, gcs::Generation(handle.generation),
 		                                  gcs::ReadRange(file_offset, file_offset + buffer_out_len));
 		if (!reader) {
-			throw GCSStatusException(reader.status().code(),
-			                         "Failed to read from GCS: " + reader.status().message());
+			throw GCSStatusException(reader.status().code(), "Failed to read from GCS: " + reader.status().message());
 		}
 
 		reader.read(buffer_out, buffer_out_len);

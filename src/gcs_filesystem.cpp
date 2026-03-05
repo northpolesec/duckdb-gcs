@@ -22,6 +22,16 @@ namespace duckdb {
 
 namespace gcs = ::google::cloud::storage;
 
+// Internal exception that carries a google::cloud::StatusCode for structured error handling.
+class GCSStatusException : public IOException {
+public:
+	google::cloud::StatusCode status_code;
+
+	GCSStatusException(google::cloud::StatusCode code, const std::string &msg)
+	    : IOException(msg), status_code(code) {
+	}
+};
+
 gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> credentials,
                                  const std::string &ca_roots_path, const GCSReadOptions &read_options) {
 	auto options = google::cloud::Options {};
@@ -564,10 +574,9 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	try {
 		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
-	} catch (const IOException &e) {
+	} catch (const GCSStatusException &e) {
 		// Check if this is a NotFound error due to stale generation; retry once
-		std::string msg(e.what());
-		if (msg.find("NOT_FOUND") == std::string::npos) {
+		if (e.status_code != google::cloud::StatusCode::kNotFound) {
 			throw;
 		}
 		// Refresh metadata to get the current generation and retry
@@ -592,12 +601,14 @@ void GCSFileSystem::ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, 
 		    handle.GetClient().ReadObject(handle.bucket, handle.object_key, gcs::Generation(handle.generation),
 		                                  gcs::ReadRange(file_offset, file_offset + buffer_out_len));
 		if (!reader) {
-			throw IOException("Failed to read from GCS: " + reader.status().message());
+			throw GCSStatusException(reader.status().code(),
+			                         "Failed to read from GCS: " + reader.status().message());
 		}
 
 		reader.read(buffer_out, buffer_out_len);
 		if (!reader) {
-			throw IOException("Failed to read data from GCS");
+			throw GCSStatusException(reader.status().code(),
+			                         "Failed to read data from GCS: " + reader.status().message());
 		}
 		return;
 	}
@@ -644,7 +655,8 @@ void GCSFileSystem::ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, 
 
 			if (!reader) {
 				error_occurred.store(true, std::memory_order_release);
-				throw IOException("Failed to read chunk from GCS: " + reader.status().message());
+				throw GCSStatusException(reader.status().code(),
+				                         "Failed to read chunk from GCS: " + reader.status().message());
 			}
 
 			// Check flag again before reading data
@@ -655,7 +667,8 @@ void GCSFileSystem::ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, 
 			reader.read(chunk.chunk_buffer, chunk.chunk_size);
 			if (!reader) {
 				error_occurred.store(true, std::memory_order_release);
-				throw IOException("Failed to read chunk data from GCS");
+				throw GCSStatusException(reader.status().code(),
+				                         "Failed to read chunk data from GCS: " + reader.status().message());
 			}
 		});
 	};

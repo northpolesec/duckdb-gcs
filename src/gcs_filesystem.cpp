@@ -563,9 +563,9 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 
 	if (!use_parallel) {
 		// Single-threaded read for small reads
-		auto reader = handle.GetClient().ReadObject(handle.bucket, handle.object_key,
-		                                            gcs::Generation(handle.generation),
-		                                            gcs::ReadRange(file_offset, file_offset + buffer_out_len));
+		auto reader =
+		    handle.GetClient().ReadObject(handle.bucket, handle.object_key, gcs::Generation(handle.generation),
+		                                  gcs::ReadRange(file_offset, file_offset + buffer_out_len));
 		if (!reader) {
 			throw IOException("Failed to read from GCS: " + reader.status().message());
 		}

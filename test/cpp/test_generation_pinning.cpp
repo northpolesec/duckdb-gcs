@@ -16,11 +16,8 @@ TEST_CASE("Generation: Metadata cache preserves generation number", "[gcs][gener
 	GCSContextState context(client, options);
 
 	SECTION("Generation number is stored and retrieved from cache") {
-		auto metadata = gcs::ObjectMetadata()
-		                    .set_bucket("test-bucket")
-		                    .set_name("test-object")
-		                    .set_size(1024)
-		                    .set_generation(42);
+		auto metadata =
+		    gcs::ObjectMetadata().set_bucket("test-bucket").set_name("test-object").set_size(1024).set_generation(42);
 
 		context.SetCachedMetadata("test-bucket", "test-object", metadata);
 
@@ -30,17 +27,11 @@ TEST_CASE("Generation: Metadata cache preserves generation number", "[gcs][gener
 	}
 
 	SECTION("Different objects have different generation numbers") {
-		auto metadata1 = gcs::ObjectMetadata()
-		                     .set_bucket("test-bucket")
-		                     .set_name("object-a")
-		                     .set_size(1024)
-		                     .set_generation(100);
+		auto metadata1 =
+		    gcs::ObjectMetadata().set_bucket("test-bucket").set_name("object-a").set_size(1024).set_generation(100);
 
-		auto metadata2 = gcs::ObjectMetadata()
-		                     .set_bucket("test-bucket")
-		                     .set_name("object-b")
-		                     .set_size(2048)
-		                     .set_generation(200);
+		auto metadata2 =
+		    gcs::ObjectMetadata().set_bucket("test-bucket").set_name("object-b").set_size(2048).set_generation(200);
 
 		context.SetCachedMetadata("test-bucket", "object-a", metadata1);
 		context.SetCachedMetadata("test-bucket", "object-b", metadata2);
@@ -55,11 +46,8 @@ TEST_CASE("Generation: Metadata cache preserves generation number", "[gcs][gener
 	}
 
 	SECTION("Updated metadata replaces generation in cache") {
-		auto metadata_v1 = gcs::ObjectMetadata()
-		                       .set_bucket("test-bucket")
-		                       .set_name("test-object")
-		                       .set_size(1024)
-		                       .set_generation(1);
+		auto metadata_v1 =
+		    gcs::ObjectMetadata().set_bucket("test-bucket").set_name("test-object").set_size(1024).set_generation(1);
 
 		context.SetCachedMetadata("test-bucket", "test-object", metadata_v1);
 
@@ -68,11 +56,8 @@ TEST_CASE("Generation: Metadata cache preserves generation number", "[gcs][gener
 		REQUIRE(cached_v1->generation() == 1);
 
 		// Simulate object being overwritten (new generation)
-		auto metadata_v2 = gcs::ObjectMetadata()
-		                       .set_bucket("test-bucket")
-		                       .set_name("test-object")
-		                       .set_size(2048)
-		                       .set_generation(2);
+		auto metadata_v2 =
+		    gcs::ObjectMetadata().set_bucket("test-bucket").set_name("test-object").set_size(2048).set_generation(2);
 
 		context.SetCachedMetadata("test-bucket", "test-object", metadata_v2);
 
@@ -184,11 +169,8 @@ TEST_CASE("Generation: Eviction preserves generation on remaining entries", "[gc
 	REQUIRE(cached2.has_value());
 
 	// Add a new entry to trigger eviction of object-0
-	auto new_metadata = gcs::ObjectMetadata()
-	                        .set_bucket("test-bucket")
-	                        .set_name("object-3")
-	                        .set_size(1024)
-	                        .set_generation(999);
+	auto new_metadata =
+	    gcs::ObjectMetadata().set_bucket("test-bucket").set_name("object-3").set_size(1024).set_generation(999);
 	context.SetCachedMetadata("test-bucket", "object-3", new_metadata);
 
 	// object-0 should be evicted

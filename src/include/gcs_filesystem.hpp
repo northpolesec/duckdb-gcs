@@ -137,6 +137,7 @@ public:
 	// File info
 	idx_t length;
 	timestamp_t last_modified;
+	std::int64_t generation = 0;
 
 	// Read buffer
 	duckdb::unique_ptr<data_t[]> read_buffer;

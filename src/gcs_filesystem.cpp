@@ -564,6 +564,7 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 	if (!use_parallel) {
 		// Single-threaded read for small reads
 		auto reader = handle.GetClient().ReadObject(handle.bucket, handle.object_key,
+		                                            gcs::Generation(handle.generation),
 		                                            gcs::ReadRange(file_offset, file_offset + buffer_out_len));
 		if (!reader) {
 			throw IOException("Failed to read from GCS: " + reader.status().message());
@@ -613,7 +614,7 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 			}
 
 			auto reader = handle.GetClient().ReadObject(
-			    handle.bucket, handle.object_key,
+			    handle.bucket, handle.object_key, gcs::Generation(handle.generation),
 			    gcs::ReadRange(chunk.chunk_offset, chunk.chunk_offset + chunk.chunk_size));
 
 			if (!reader) {
@@ -747,6 +748,7 @@ void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
 	auto cached_metadata = gcs_context.GetCachedMetadata(handle.bucket, handle.object_key);
 	if (cached_metadata.has_value()) {
 		handle.length = cached_metadata->size();
+		handle.generation = cached_metadata->generation();
 		auto time_point = cached_metadata->updated();
 		auto duration = time_point.time_since_epoch();
 		handle.last_modified = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
@@ -762,6 +764,7 @@ void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
 	gcs_context.SetCachedMetadata(handle.bucket, handle.object_key, *object_metadata);
 
 	handle.length = object_metadata->size();
+	handle.generation = object_metadata->generation();
 
 	// Convert time_point to time_t
 	auto time_point = object_metadata->updated();

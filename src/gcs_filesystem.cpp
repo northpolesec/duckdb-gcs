@@ -22,6 +22,15 @@ namespace duckdb {
 
 namespace gcs = ::google::cloud::storage;
 
+// Internal exception that carries a google::cloud::StatusCode for structured error handling.
+class GCSStatusException : public IOException {
+public:
+	google::cloud::StatusCode status_code;
+
+	GCSStatusException(google::cloud::StatusCode code, const std::string &msg) : IOException(msg), status_code(code) {
+	}
+};
+
 gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> credentials,
                                  const std::string &ca_roots_path, const GCSReadOptions &read_options) {
 	auto options = google::cloud::Options {};
@@ -35,9 +44,11 @@ gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> cre
 		options.set<google::cloud::CARootsFilePathOption>(ca_roots_path);
 	}
 
+#ifdef GCS_ENABLE_GRPC
 	if (read_options.enable_grpc) {
 		return gcs::MakeGrpcClient(options);
 	}
+#endif
 	return gcs::Client(options);
 }
 
@@ -133,6 +144,12 @@ void GCSContextState::SetCachedList(const std::string &bucket, const std::string
 
 	auto now = std::chrono::steady_clock::now();
 	list_cache[key] = {results, now, now};
+}
+
+void GCSContextState::InvalidateCachedMetadata(const std::string &bucket, const std::string &object_key) {
+	auto key = MakeMetadataKey(bucket, object_key);
+	std::scoped_lock lock(cache_mutex);
+	metadata_cache.erase(key);
 }
 
 void GCSContextState::EvictLRUMetadataEntryLocked() {
@@ -441,6 +458,11 @@ GCSReadOptions GCSFileSystem::ParseGCSReadOptions(optional_ptr<FileOpener> opene
 		}
 		options.transfer_concurrency = concurrency;
 	}
+#ifdef GCS_ENABLE_GRPC
+	if (FileOpener::TryGetCurrentSetting(opener, "gcs_enable_grpc", value)) {
+		options.enable_grpc = value.GetValue<bool>();
+	}
+#endif
 
 	return options;
 }
@@ -556,6 +578,24 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 }
 
 void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
+	try {
+		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
+	} catch (const GCSStatusException &e) {
+		// Check if this is a NotFound error due to stale generation; retry once
+		if (e.status_code != google::cloud::StatusCode::kNotFound) {
+			throw;
+		}
+		// Refresh metadata to get the current generation and retry
+		handle.context->InvalidateCachedMetadata(handle.bucket, handle.object_key);
+		handle.length = 0;
+		handle.generation = 0;
+		LoadFileInfo(handle);
+		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
+	}
+}
+
+void GCSFileSystem::ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, char *buffer_out,
+                                      idx_t buffer_out_len) {
 	auto opts = handle.read_options;
 
 	idx_t parallel_threshold = opts.buffer_size * 2;
@@ -563,15 +603,17 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 
 	if (!use_parallel) {
 		// Single-threaded read for small reads
-		auto reader = handle.GetClient().ReadObject(handle.bucket, handle.object_key,
-		                                            gcs::ReadRange(file_offset, file_offset + buffer_out_len));
+		auto reader =
+		    handle.GetClient().ReadObject(handle.bucket, handle.object_key, gcs::Generation(handle.generation),
+		                                  gcs::ReadRange(file_offset, file_offset + buffer_out_len));
 		if (!reader) {
-			throw IOException("Failed to read from GCS: " + reader.status().message());
+			throw GCSStatusException(reader.status().code(), "Failed to read from GCS: " + reader.status().message());
 		}
 
 		reader.read(buffer_out, buffer_out_len);
 		if (!reader) {
-			throw IOException("Failed to read data from GCS");
+			throw GCSStatusException(reader.status().code(),
+			                         "Failed to read data from GCS: " + reader.status().message());
 		}
 		return;
 	}
@@ -613,12 +655,13 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 			}
 
 			auto reader = handle.GetClient().ReadObject(
-			    handle.bucket, handle.object_key,
+			    handle.bucket, handle.object_key, gcs::Generation(handle.generation),
 			    gcs::ReadRange(chunk.chunk_offset, chunk.chunk_offset + chunk.chunk_size));
 
 			if (!reader) {
 				error_occurred.store(true, std::memory_order_release);
-				throw IOException("Failed to read chunk from GCS: " + reader.status().message());
+				throw GCSStatusException(reader.status().code(),
+				                         "Failed to read chunk from GCS: " + reader.status().message());
 			}
 
 			// Check flag again before reading data
@@ -629,7 +672,8 @@ void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *bu
 			reader.read(chunk.chunk_buffer, chunk.chunk_size);
 			if (!reader) {
 				error_occurred.store(true, std::memory_order_release);
-				throw IOException("Failed to read chunk data from GCS");
+				throw GCSStatusException(reader.status().code(),
+				                         "Failed to read chunk data from GCS: " + reader.status().message());
 			}
 		});
 	};
@@ -747,6 +791,7 @@ void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
 	auto cached_metadata = gcs_context.GetCachedMetadata(handle.bucket, handle.object_key);
 	if (cached_metadata.has_value()) {
 		handle.length = cached_metadata->size();
+		handle.generation = cached_metadata->generation();
 		auto time_point = cached_metadata->updated();
 		auto duration = time_point.time_since_epoch();
 		handle.last_modified = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
@@ -762,6 +807,7 @@ void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
 	gcs_context.SetCachedMetadata(handle.bucket, handle.object_key, *object_metadata);
 
 	handle.length = object_metadata->size();
+	handle.generation = object_metadata->generation();
 
 	// Convert time_point to time_t
 	auto time_point = object_metadata->updated();

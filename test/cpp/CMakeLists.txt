@@ -26,8 +26,10 @@ target_include_directories(
           ${CMAKE_CURRENT_SOURCE_DIR}/../../duckdb/third_party/catch)
 
 # Link against the extension library and required dependencies
-target_link_libraries(${TEST_TARGET} PRIVATE gcs_extension duckdb_static
-                                             google-cloud-cpp::storage)
+target_link_libraries(${TEST_TARGET} gcs_extension duckdb_static
+                      google-cloud-cpp::storage)
+
+link_extension_libraries(${TEST_TARGET} "")
 
 # Enable testing
 enable_testing()

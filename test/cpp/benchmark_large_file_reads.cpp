@@ -171,7 +171,6 @@ TEST_CASE("GCS Benchmark: Large-scale list cache operations", "[gcs][!benchmark]
 
 	SECTION("Benchmark: Hierarchical partitioned dataset (Hive-style)") {
 		BENCHMARK("Cache 36 month partitions across 3 years (3,600 files)") {
-
 			// Simulate 3 years of monthly partitions with 100 files each
 			std::vector<std::string> years = {"2022", "2023", "2024"};
 			std::vector<std::string> months = {"01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"};

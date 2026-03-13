@@ -197,7 +197,6 @@ GCSFileHandle::GCSFileHandle(GCSFileSystem &fs, const OpenFileInfo &info, FileOp
     : FileHandle(fs, info.path, flags), flags(flags), length(0), last_modified(0), buffer_available(0), buffer_idx(0),
       file_offset(0), buffer_start(0), buffer_end(0), read_options(read_options), bucket(bucket),
       object_key(object_key), context(std::move(context)) {
-
 	if (!flags.RequireParallelAccess()) {
 		read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[read_options.buffer_size]);
 	}

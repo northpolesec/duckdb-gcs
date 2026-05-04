@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.5...3.29)
 # Set extension name here
 set(TARGET_NAME gcs)
 
+# https://github.com/duckdb/duckdb/issues/22097
+set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to enforce" FORCE)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 project(${TARGET_NAME})
 include_directories(src/include)

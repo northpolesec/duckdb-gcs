@@ -4,8 +4,32 @@
 #include <thread>
 #include <vector>
 #include <atomic>
+#include <cstring>
 
 using namespace duckdb;
+
+namespace {
+
+class TestGCSFileSystem : public GCSFileSystem {
+public:
+	TestGCSFileSystem() : GCSFileSystem("") {
+	}
+
+	void Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override {
+		auto &gcs_handle = handle.Cast<GCSFileHandle>();
+		memset(buffer, 'x', UnsafeNumericCast<size_t>(nr_bytes));
+		gcs_handle.file_offset = location + UnsafeNumericCast<idx_t>(nr_bytes);
+	}
+};
+
+static shared_ptr<GCSContextState> CreateTestContext() {
+	GCSReadOptions options;
+	auto credentials = google::cloud::MakeInsecureCredentials();
+	auto client = gcs::Client(google::cloud::Options {}.set<google::cloud::UnifiedCredentialsOption>(credentials));
+	return make_shared_ptr<GCSContextState>(client, options);
+}
+
+} // namespace
 
 TEST_CASE("SafeMaxRead: Integer overflow protection", "[gcs][file]") {
 	SECTION("Normal case - offset < length") {
@@ -65,6 +89,24 @@ TEST_CASE("SafeMaxRead: Integer overflow protection", "[gcs][file]") {
 		int64_t result = SafeMaxRead(offset, length);
 		REQUIRE(result == 100);
 	}
+}
+
+TEST_CASE("GCSFileSystem: sequential reads advance file offset once", "[gcs][file]") {
+	TestGCSFileSystem fs;
+	GCSReadOptions options;
+	auto context = CreateTestContext();
+	OpenFileInfo info("gs://test-bucket/test-object");
+	GCSFileHandle handle(fs, info, FileFlags::FILE_FLAGS_READ, options, "test-bucket", "test-object", context);
+	handle.length = 1000;
+
+	char buffer[100];
+	auto bytes_read = fs.GCSFileSystem::Read(handle, buffer, sizeof(buffer));
+	REQUIRE(bytes_read == 100);
+	REQUIRE(handle.file_offset == 100);
+
+	bytes_read = fs.GCSFileSystem::Read(handle, buffer, sizeof(buffer));
+	REQUIRE(bytes_read == 100);
+	REQUIRE(handle.file_offset == 200);
 }
 
 TEST_CASE("GCSFileHandle: Parallel reads", "[gcs][file][parallel]") {

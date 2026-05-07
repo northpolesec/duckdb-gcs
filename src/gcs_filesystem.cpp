@@ -347,7 +347,6 @@ int64_t GCSFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes) 
 
 	nr_bytes = MinValue<int64_t>(max_read, nr_bytes);
 	Read(handle, buffer, nr_bytes, gcp_handle.file_offset);
-	gcp_handle.file_offset += nr_bytes;
 	return nr_bytes;
 }
 

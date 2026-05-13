@@ -32,7 +32,8 @@ public:
 };
 
 gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> credentials,
-                                 const std::string &ca_roots_path, const GCSReadOptions &read_options) {
+                                 const std::string &ca_roots_path, const GCSReadOptions &read_options,
+                                 const std::string &universe_domain) {
 	auto options = google::cloud::Options {};
 	options.set<google::cloud::UnifiedCredentialsOption>(std::move(credentials));
 	options.set<gcs::DownloadBufferSizeOption>(read_options.buffer_size);
@@ -44,8 +45,16 @@ gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> cre
 		options.set<google::cloud::CARootsFilePathOption>(ca_roots_path);
 	}
 
+	if (!universe_domain.empty()) {
+		// UniverseDomainOption is in the `internal` namespace as of google-cloud-cpp v2.36
+		// (slated to graduate per upstream TODO #13115). The storage client honors it and
+		// derives `storage.<universe>` for the REST endpoint automatically.
+		options.set<google::cloud::internal::UniverseDomainOption>(universe_domain);
+	}
+
 #ifdef GCS_ENABLE_GRPC
-	if (read_options.enable_grpc) {
+	// Sovereign / non-default universes don't expose Google's private gRPC endpoint — force REST.
+	if (read_options.enable_grpc && universe_domain.empty()) {
 		return gcs::MakeGrpcClient(options);
 	}
 #endif
@@ -733,13 +742,15 @@ shared_ptr<GCSContextState> GCSFileSystem::CreateStorageContext(optional_ptr<Fil
 		auto read_options = ParseGCSReadOptions(opener);
 		auto &kv_secret = dynamic_cast<const KeyValueSecret &>(secret_match.GetSecret());
 		auto provider = kv_secret.TryGetValue("provider");
+		auto ud_val = kv_secret.TryGetValue("universe_domain");
+		std::string universe_domain = ud_val.IsNull() ? std::string {} : ud_val.ToString();
 
 		if (provider == GCSSecretProvider::ACCESS_TOKEN) {
 			auto access_token = kv_secret.TryGetValue("access_token");
 			if (!access_token.IsNull() && !access_token.ToString().empty()) {
 				auto credentials = google::cloud::MakeAccessTokenCredentials(
 				    access_token.ToString(), std::chrono::system_clock::now() + std::chrono::hours(1));
-				auto client = BuildOptimizedClient(credentials, ca_roots_path, read_options);
+				auto client = BuildOptimizedClient(credentials, ca_roots_path, read_options, universe_domain);
 				return make_shared_ptr<GCSContextState>(std::move(client), read_options);
 			}
 		} else if (provider == GCSSecretProvider::SERVICE_ACCOUNT) {
@@ -750,13 +761,13 @@ shared_ptr<GCSContextState> GCSFileSystem::CreateStorageContext(optional_ptr<Fil
 					std::string json_contents((std::istreambuf_iterator<char>(key_file)),
 					                          std::istreambuf_iterator<char>());
 					auto credentials = google::cloud::MakeServiceAccountCredentials(json_contents);
-					auto client = BuildOptimizedClient(credentials, ca_roots_path, read_options);
+					auto client = BuildOptimizedClient(credentials, ca_roots_path, read_options, universe_domain);
 					return make_shared_ptr<GCSContextState>(std::move(client), read_options);
 				}
 			}
 		} else if (provider == GCSSecretProvider::CREDENTIAL_CHAIN) {
 			auto credentials = google::cloud::MakeGoogleDefaultCredentials();
-			auto client = BuildOptimizedClient(credentials, ca_roots_path, read_options);
+			auto client = BuildOptimizedClient(credentials, ca_roots_path, read_options, universe_domain);
 			return make_shared_ptr<GCSContextState>(std::move(client), read_options);
 		}
 	}

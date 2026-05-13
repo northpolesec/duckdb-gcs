@@ -19,6 +19,7 @@ static unique_ptr<CreateSecretFunction> GetGCPCreateSecretFunction() {
 	function.named_parameters["service_account_email"] = LogicalType::VARCHAR;
 	function.named_parameters["access_token"] = LogicalType::VARCHAR;
 	function.named_parameters["project_id"] = LogicalType::VARCHAR;
+	function.named_parameters["universe_domain"] = LogicalType::VARCHAR;
 
 	return make_uniq<CreateSecretFunction>(function);
 }
@@ -37,12 +38,14 @@ void CreateGCSSecretFunctions::Register(ExtensionLoader &loader) {
 	service_account_function.named_parameters["service_account_key_path"] = LogicalType::VARCHAR;
 	service_account_function.named_parameters["service_account_email"] = LogicalType::VARCHAR;
 	service_account_function.named_parameters["project_id"] = LogicalType::VARCHAR;
+	service_account_function.named_parameters["universe_domain"] = LogicalType::VARCHAR;
 	loader.RegisterFunction(service_account_function);
 
 	// Credential Chain provider (default)
 	CreateSecretFunction credential_chain_function = {secret_type.name, GCSSecretProvider::CREDENTIAL_CHAIN,
 	                                                  CreateGCSSecretFromCredentialChain};
 	credential_chain_function.named_parameters["project_id"] = LogicalType::VARCHAR;
+	credential_chain_function.named_parameters["universe_domain"] = LogicalType::VARCHAR;
 	loader.RegisterFunction(credential_chain_function);
 
 	// Access Token provider
@@ -50,6 +53,7 @@ void CreateGCSSecretFunctions::Register(ExtensionLoader &loader) {
 	                                              CreateGCSSecretFromAccessToken};
 	access_token_function.named_parameters["access_token"] = LogicalType::VARCHAR;
 	access_token_function.named_parameters["project_id"] = LogicalType::VARCHAR;
+	access_token_function.named_parameters["universe_domain"] = LogicalType::VARCHAR;
 	loader.RegisterFunction(access_token_function);
 }
 
@@ -77,6 +81,12 @@ unique_ptr<BaseSecret> CreateGCSSecretFunctions::CreateGCSSecretFromServiceAccou
 		secret->secret_map["project_id"] = project_id->second;
 	}
 
+	// Optional universe domain (sovereign-cloud / alternative GCS universe, e.g. "s3nsapis.fr")
+	auto universe_domain = input.options.find("universe_domain");
+	if (universe_domain != input.options.end()) {
+		secret->secret_map["universe_domain"] = universe_domain->second;
+	}
+
 	// Set provider type
 	secret->secret_map["provider"] = GCSSecretProvider::SERVICE_ACCOUNT;
 
@@ -95,6 +105,12 @@ unique_ptr<BaseSecret> CreateGCSSecretFunctions::CreateGCSSecretFromCredentialCh
 	auto project_id = input.options.find("project_id");
 	if (project_id != input.options.end()) {
 		secret->secret_map["project_id"] = project_id->second;
+	}
+
+	// Optional universe domain (sovereign-cloud / alternative GCS universe, e.g. "s3nsapis.fr")
+	auto universe_domain = input.options.find("universe_domain");
+	if (universe_domain != input.options.end()) {
+		secret->secret_map["universe_domain"] = universe_domain->second;
 	}
 
 	// Set provider type
@@ -119,6 +135,12 @@ unique_ptr<BaseSecret> CreateGCSSecretFunctions::CreateGCSSecretFromAccessToken(
 	auto project_id = input.options.find("project_id");
 	if (project_id != input.options.end()) {
 		secret->secret_map["project_id"] = project_id->second;
+	}
+
+	// Optional universe domain (sovereign-cloud / alternative GCS universe, e.g. "s3nsapis.fr")
+	auto universe_domain = input.options.find("universe_domain");
+	if (universe_domain != input.options.end()) {
+		secret->secret_map["universe_domain"] = universe_domain->second;
 	}
 
 	// Set provider type

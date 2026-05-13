@@ -171,6 +171,32 @@ CREATE SECRET my_scoped_secret (
 );
 ```
 
+#### Sovereign Cloud / Custom Universe Domain
+
+To target a non-default GCS universe (e.g. the S3NS sovereign cloud at
+`*.s3nsapis.fr`), pass `universe_domain` on any provider. The SDK auto-rewrites
+both the storage data plane and any derived service endpoints
+(`storage.<universe>`, `iam.<universe>`, …). gRPC is force-disabled when a
+custom universe is set — sovereign endpoints expose REST only.
+
+```sql
+-- S3NS with a sovereign-issued service account key (recommended for long sessions)
+CREATE SECRET s3ns_sa (
+    TYPE GCP,
+    PROVIDER service_account,
+    SERVICE_ACCOUNT_KEY_PATH '/keys/s3ns.json',
+    UNIVERSE_DOMAIN 's3nsapis.fr'
+);
+
+-- S3NS with a user-minted access token
+CREATE SECRET s3ns_token (
+    TYPE GCP,
+    PROVIDER access_token,
+    ACCESS_TOKEN '<token-from-s3ns-sts>',
+    UNIVERSE_DOMAIN 's3nsapis.fr'
+);
+```
+
 ### Basic File Reading
 
 ```sql

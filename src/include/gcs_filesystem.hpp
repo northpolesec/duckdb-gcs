@@ -5,6 +5,7 @@
 #include <google/cloud/storage/grpc_plugin.h>
 #endif
 #include <google/cloud/storage/object_metadata.h>
+#include <google/cloud/universe_domain_options.h>
 #include <unordered_map>
 #include <mutex>
 #include <chrono>

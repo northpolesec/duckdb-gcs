@@ -171,6 +171,57 @@ CREATE SECRET my_scoped_secret (
 );
 ```
 
+#### GKE Workload Identity
+
+On a GKE cluster with Workload Identity enabled, the `credential_chain`
+provider picks up the pod's bound Google service account from the in-cluster
+metadata server automatically — no key file needed. Tokens are refreshed
+transparently by the SDK before expiry.
+
+```sql
+CREATE SECRET gke_gcs (
+    TYPE GCP,
+    PROVIDER credential_chain,
+    PROJECT_ID 'your-project-id'
+);
+
+SELECT count(*) FROM read_parquet('gs://my-bucket/data/*.parquet');
+```
+
+Cluster-side prerequisites (one-time setup):
+
+```bash
+# 1. Annotate the Kubernetes service account to bind it to a GCP service account
+kubectl annotate serviceaccount KSA_NAME \
+    --namespace NAMESPACE \
+    iam.gke.io/gcp-service-account=GSA_NAME@PROJECT_ID.iam.gserviceaccount.com
+
+# 2. Grant the KSA the workloadIdentityUser role on the GSA
+gcloud iam service-accounts add-iam-policy-binding \
+    GSA_NAME@PROJECT_ID.iam.gserviceaccount.com \
+    --role roles/iam.workloadIdentityUser \
+    --member "serviceAccount:PROJECT_ID.svc.id.goog[NAMESPACE/KSA_NAME]"
+
+# 3. Grant the GSA access to your bucket
+gcloud storage buckets add-iam-policy-binding gs://my-bucket \
+    --member "serviceAccount:GSA_NAME@PROJECT_ID.iam.gserviceaccount.com" \
+    --role roles/storage.objectViewer
+```
+
+And in your pod spec, use the annotated KSA:
+
+```yaml
+spec:
+  serviceAccountName: KSA_NAME
+  containers:
+    - name: duckdb
+      image: your/duckdb-image
+```
+
+Note: GKE Workload Identity returns Google-issued tokens. It does **not**
+work against sovereign-cloud universes (e.g. `s3nsapis.fr`) out of the box —
+for those, use the `service_account` provider with a sovereign-issued JSON key.
+
 #### Sovereign Cloud / Custom Universe Domain
 
 To target a non-default GCS universe (e.g. the S3NS sovereign cloud at
@@ -180,6 +231,14 @@ both the storage data plane and any derived service endpoints
 custom universe is set — sovereign endpoints expose REST only.
 
 ```sql
+-- S3NS with ADC pointing at a sovereign-issued service account key
+-- (e.g. via GOOGLE_APPLICATION_CREDENTIALS=/keys/s3ns.json)
+CREATE SECRET s3ns_adc (
+    TYPE GCP,
+    PROVIDER credential_chain,
+    UNIVERSE_DOMAIN 's3nsapis.fr'
+);
+
 -- S3NS with a sovereign-issued service account key (recommended for long sessions)
 CREATE SECRET s3ns_sa (
     TYPE GCP,

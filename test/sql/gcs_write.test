@@ -1,0 +1,29 @@
+# name: test/sql/gcs_write.test
+# description: Tests for writing files and directories (e.g. Hive partitioning) to GCS
+# group: [sql]
+
+require gcs
+
+require parquet
+
+# These tests run without credentials, so they exercise that the write/directory code paths are
+# wired up: they must fail with a credentials error rather than a "not implemented" error. Tests
+# that actually write to a bucket require authentication and are run manually (see test/README.md).
+
+# A plain directory write (PER_THREAD_OUTPUT) reaches DirectoryExists/CreateDirectory.
+statement error
+COPY (SELECT 1 AS a) TO 'gs://duckdb-gcs-testing/write_test_dir' (FORMAT parquet, PER_THREAD_OUTPUT true);
+----
+No valid GCP credentials found
+
+# A Hive-partitioned write also reaches the directory operations and must not be "not implemented".
+statement error
+COPY (SELECT 1 AS a, 'x' AS part) TO 'gs://duckdb-gcs-testing/write_test_parted' (FORMAT parquet, PARTITION_BY (part), OVERWRITE_OR_IGNORE);
+----
+No valid GCP credentials found
+
+# The gcss:// scheme (which forces this extension) must behave the same for partitioned writes.
+statement error
+COPY (SELECT 1 AS a, 'x' AS part) TO 'gcss://duckdb-gcs-testing/write_test_parted' (FORMAT parquet, PARTITION_BY (part), OVERWRITE_OR_IGNORE);
+----
+No valid GCP credentials found

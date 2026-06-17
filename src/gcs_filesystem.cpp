@@ -54,6 +54,26 @@ gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> cre
 	return gcs::Client(options);
 }
 
+static std::string NoCredentialsErrorMessage() {
+	std::string error_msg = "No valid GCP credentials found.\n\n";
+	error_msg += "The Google Cloud Storage extension requires authentication.\n";
+	error_msg += "Please use one of these methods:\n\n";
+	error_msg += "1. Set up Application Default Credentials:\n";
+	error_msg += "   gcloud auth application-default login\n\n";
+	error_msg += "   Note: Regular 'gcloud auth login' is NOT sufficient.\n";
+	error_msg += "   You must use 'gcloud auth application-default login'.\n\n";
+	error_msg += "2. Use a service account key file:\n";
+	error_msg += "   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n\n";
+	error_msg += "3. Run in a GCP environment with default service account\n\n";
+	error_msg += "4. Create a secret in secret manager, one of:\n";
+	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER credential_chain);\n";
+	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER service_account, service_account_key_path = "
+	             "'/path/to/key.json');\n";
+	error_msg +=
+	    "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER access_token, access_token = 'your_access_token');\n\n";
+	return error_msg;
+}
+
 void GCSContextState::QueryEnd() {
 }
 
@@ -515,7 +535,7 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 				auto &status = object_metadata.status();
 
 				if (status.code() == google::cloud::StatusCode::kUnauthenticated) {
-					throw IOException("GCS Authentication failed. Please run: gcloud auth application-default login");
+					throw IOException(NoCredentialsErrorMessage());
 				} else if (status.code() == google::cloud::StatusCode::kPermissionDenied) {
 					throw IOException("GCS Permission denied. Check bucket permissions for: " + parsed_url.bucket);
 				} else if (status.code() == google::cloud::StatusCode::kNotFound) {
@@ -777,24 +797,7 @@ shared_ptr<GCSContextState> GCSFileSystem::CreateStorageContext(optional_ptr<Fil
 	}
 
 	// Provide helpful error message
-	std::string error_msg = "No valid GCP credentials found.\n\n";
-	error_msg += "The Google Cloud Storage extension requires authentication.\n";
-	error_msg += "Please use one of these methods:\n\n";
-	error_msg += "1. Set up Application Default Credentials:\n";
-	error_msg += "   gcloud auth application-default login\n\n";
-	error_msg += "   Note: Regular 'gcloud auth login' is NOT sufficient.\n";
-	error_msg += "   You must use 'gcloud auth application-default login'.\n\n";
-	error_msg += "2. Use a service account key file:\n";
-	error_msg += "   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n\n";
-	error_msg += "3. Run in a GCP environment with default service account\n\n";
-	error_msg += "4. Create a secret in secret manager, one of:\n";
-	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER credential_chain);\n";
-	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER service_account, service_account_key_path = "
-	             "'/path/to/key.json');\n";
-	error_msg +=
-	    "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER access_token, access_token = 'your_access_token');\n\n";
-
-	throw IOException(error_msg);
+	throw IOException(NoCredentialsErrorMessage());
 }
 
 void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
@@ -851,7 +854,7 @@ int64_t GCSFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes)
 static void ThrowGCSListError(const google::cloud::Status &status, const std::string &bucket, const std::string &path) {
 	switch (status.code()) {
 	case google::cloud::StatusCode::kUnauthenticated:
-		throw IOException("GCS Authentication failed. Please run: gcloud auth application-default login");
+		throw IOException(NoCredentialsErrorMessage());
 	case google::cloud::StatusCode::kPermissionDenied:
 		throw IOException("GCS Permission denied. Check bucket permissions for: " + bucket);
 	case google::cloud::StatusCode::kNotFound:

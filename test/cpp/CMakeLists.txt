@@ -7,8 +7,10 @@ set(TEST_TARGET gcs_unit_tests)
 find_package(google_cloud_cpp_storage REQUIRED)
 
 # Collect test source files
-set(TEST_SOURCES test_main.cpp test_cache_behavior.cpp test_file_operations.cpp
-                 test_glob_operations.cpp test_generation_pinning.cpp)
+set(TEST_SOURCES
+    test_main.cpp test_cache_behavior.cpp test_file_operations.cpp
+    test_glob_operations.cpp test_generation_pinning.cpp
+    test_directory_operations.cpp)
 
 # Add benchmarks only on Clang/GNU
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

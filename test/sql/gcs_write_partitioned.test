@@ -1,0 +1,105 @@
+# name: test/sql/gcs_write_partitioned.test
+# description: End-to-end write tests (single file, Hive partitioning, overwrite) against a real bucket
+# group: [sql]
+
+require gcs
+
+require parquet
+
+require-env GCS_AUTH_AVAILABLE
+
+# Bucket to write to. This must be a bucket you can write to, so it has no default: the test is
+# skipped unless GCS_TEST_WRITE_BUCKET is set, e.g.
+#   GCS_AUTH_AVAILABLE=1 GCS_TEST_WRITE_BUCKET=my-bucket build/release/test/unittest test/sql/gcs_write_partitioned.test
+require-env GCS_TEST_WRITE_BUCKET
+
+statement ok
+CREATE SECRET secret (TYPE gcp, PROVIDER credential_chain);
+
+# --- single file round-trip ---
+
+statement ok
+COPY (SELECT 1 AS a, 'x' AS b) TO 'gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/single.parquet' (FORMAT parquet);
+
+query II
+SELECT a, b FROM read_parquet('gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/single.parquet');
+----
+1	x
+
+# --- Hive-partitioned directory write ---
+
+statement ok
+COPY (SELECT * FROM (VALUES (1, 'x'), (2, 'x'), (3, 'y'), (4, 'z')) t(id, part))
+  TO 'gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/parted' (FORMAT parquet, PARTITION_BY (part), OVERWRITE);
+
+query II
+SELECT part, count(*) AS n
+FROM read_parquet('gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/parted/**/*.parquet', hive_partitioning = true)
+GROUP BY part ORDER BY part;
+----
+x	2
+y	1
+z	1
+
+# Writing without an overwrite option into the now non-empty directory must fail.
+statement error
+COPY (SELECT 9 AS id, 'q' AS part)
+  TO 'gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/parted' (FORMAT parquet, PARTITION_BY (part));
+----
+not empty
+
+# OVERWRITE must clear the previous partitions: rewriting with fewer partitions leaves only the new ones.
+statement ok
+COPY (SELECT * FROM (VALUES (10, 'm'), (11, 'n')) t(id, part))
+  TO 'gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/parted' (FORMAT parquet, PARTITION_BY (part), OVERWRITE);
+
+query II
+SELECT part, count(*) AS n
+FROM read_parquet('gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/parted/**/*.parquet', hive_partitioning = true)
+GROUP BY part ORDER BY part;
+----
+m	1
+n	1
+
+# --- multi-column partitioning ---
+
+statement ok
+COPY (SELECT * FROM (VALUES (1, 2024, 1), (2, 2024, 2), (3, 2025, 1)) t(id, year, month))
+  TO 'gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/multi' (FORMAT parquet, PARTITION_BY (year, month), OVERWRITE);
+
+query III
+SELECT year, month, count(*) AS n
+FROM read_parquet('gs://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/multi/**/*.parquet', hive_partitioning = true)
+GROUP BY year, month ORDER BY year, month;
+----
+2024	1	1
+2024	2	1
+2025	1	1
+
+# --- single-file overwrite via the gcss:// scheme (exercises MoveFile: gcss:// is not recognized as a
+#     remote path, so an existing target is written to a tmp file and then moved into place) ---
+
+statement ok
+COPY (SELECT 1 AS a) TO 'gcss://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/mv.parquet' (FORMAT parquet);
+
+statement ok
+COPY (SELECT 42 AS a) TO 'gcss://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/mv.parquet' (FORMAT parquet);
+
+query I
+SELECT a FROM read_parquet('gcss://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/mv.parquet');
+----
+42
+
+# --- partitioned write through the gcss:// scheme (takes the non-remote planning branch) ---
+
+statement ok
+COPY (SELECT * FROM (VALUES (1, 'x'), (2, 'y')) t(id, part))
+  TO 'gcss://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/parted_gcss' (FORMAT parquet, PARTITION_BY (part), OVERWRITE);
+
+query II
+SELECT part, count(*) AS n
+FROM read_parquet('gcss://${GCS_TEST_WRITE_BUCKET}/duckdb-gcs-write-test/parted_gcss/**/*.parquet', hive_partitioning = true)
+GROUP BY part ORDER BY part;
+----
+x	1
+y	1

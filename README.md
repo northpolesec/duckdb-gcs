@@ -2,8 +2,8 @@
 
 ---
 
-This DuckDB extension allows you to read files from Google Cloud Storage,
-natively, using the Google Cloud C++ SDK.
+This DuckDB extension allows you to read and write files on Google Cloud
+Storage, natively, using the Google Cloud C++ SDK.
 
 DuckDB's core httpfs extension allows reading files from GCS, but it does so
 using the S3 compatibility API. This is not as fast as the native API and it
@@ -13,6 +13,28 @@ policy for service accounts.
 Note: Because the core `httpfs` extension registers itself as a handler for
 `gs://` and `gcs://` URLs, this extension also supports `gcss://` as a way to
 force its usage.
+
+## Writing
+
+In addition to reading, the extension supports writing single files as well as
+directories, so a `COPY ... TO` statement can target a `gs://` path the same way
+it would a local one. This includes partitioned (Hive) writes, where each
+partition is written to its own `key=value/` prefix:
+
+```sql
+-- Write a single file
+COPY tbl TO 'gs://my-bucket/path/data.parquet' (FORMAT parquet);
+
+-- Write a Hive-partitioned dataset (one directory/prefix per partition value)
+COPY tbl TO 'gs://my-bucket/path/dataset' (FORMAT parquet, PARTITION_BY (year, month));
+
+-- Re-running with OVERWRITE clears the existing files in the target directory first
+COPY tbl TO 'gs://my-bucket/path/dataset' (FORMAT parquet, PARTITION_BY (year, month), OVERWRITE);
+```
+
+Since GCS has no real directories, a "directory" is just a shared object-key
+prefix: it is created implicitly when objects are written and is considered to
+exist when at least one object shares its prefix.
 
 ## Building
 

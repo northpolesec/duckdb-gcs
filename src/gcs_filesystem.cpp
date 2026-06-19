@@ -8,6 +8,7 @@
 #include "duckdb/catalog/catalog_transaction.hpp"
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/numeric_utils.hpp"
 #include "gcs_secret.hpp"
 
 #include <atomic>
@@ -16,6 +17,7 @@
 #include <future>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <thread>
 
 namespace duckdb {
@@ -50,6 +52,26 @@ gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> cre
 	}
 #endif
 	return gcs::Client(options);
+}
+
+static std::string NoCredentialsErrorMessage() {
+	std::string error_msg = "No valid GCP credentials found.\n\n";
+	error_msg += "The Google Cloud Storage extension requires authentication.\n";
+	error_msg += "Please use one of these methods:\n\n";
+	error_msg += "1. Set up Application Default Credentials:\n";
+	error_msg += "   gcloud auth application-default login\n\n";
+	error_msg += "   Note: Regular 'gcloud auth login' is NOT sufficient.\n";
+	error_msg += "   You must use 'gcloud auth application-default login'.\n\n";
+	error_msg += "2. Use a service account key file:\n";
+	error_msg += "   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n\n";
+	error_msg += "3. Run in a GCP environment with default service account\n\n";
+	error_msg += "4. Create a secret in secret manager, one of:\n";
+	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER credential_chain);\n";
+	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER service_account, service_account_key_path = "
+	             "'/path/to/key.json');\n";
+	error_msg +=
+	    "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER access_token, access_token = 'your_access_token');\n\n";
+	return error_msg;
 }
 
 void GCSContextState::QueryEnd() {
@@ -150,6 +172,18 @@ void GCSContextState::InvalidateCachedMetadata(const std::string &bucket, const 
 	auto key = MakeMetadataKey(bucket, object_key);
 	std::scoped_lock lock(cache_mutex);
 	metadata_cache.erase(key);
+}
+
+void GCSContextState::InvalidateCachedList(const std::string &bucket) {
+	auto key_prefix = MakeListKey(bucket, "");
+	std::scoped_lock lock(cache_mutex);
+	for (auto it = list_cache.begin(); it != list_cache.end();) {
+		if (it->first.rfind(key_prefix, 0) == 0) {
+			it = list_cache.erase(it);
+		} else {
+			++it;
+		}
+	}
 }
 
 void GCSContextState::EvictLRUMetadataEntryLocked() {
@@ -371,7 +405,8 @@ idx_t GCSFileSystem::SeekPosition(FileHandle &handle) {
 }
 
 void GCSFileSystem::FileSync(FileHandle &handle) {
-	// No-op for read-only filesystem
+	// No-op: GCS writes are buffered into a resumable upload that is finalized on Close(), so there is
+	// no intermediate flush to perform here.
 }
 
 bool GCSFileSystem::LoadFileInfo(GCSFileHandle &handle) {
@@ -500,7 +535,7 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 				auto &status = object_metadata.status();
 
 				if (status.code() == google::cloud::StatusCode::kUnauthenticated) {
-					throw IOException("GCS Authentication failed. Please run: gcloud auth application-default login");
+					throw IOException(NoCredentialsErrorMessage());
 				} else if (status.code() == google::cloud::StatusCode::kPermissionDenied) {
 					throw IOException("GCS Permission denied. Check bucket permissions for: " + parsed_url.bucket);
 				} else if (status.code() == google::cloud::StatusCode::kNotFound) {
@@ -762,24 +797,7 @@ shared_ptr<GCSContextState> GCSFileSystem::CreateStorageContext(optional_ptr<Fil
 	}
 
 	// Provide helpful error message
-	std::string error_msg = "No valid GCP credentials found.\n\n";
-	error_msg += "The Google Cloud Storage extension requires authentication.\n";
-	error_msg += "Please use one of these methods:\n\n";
-	error_msg += "1. Set up Application Default Credentials:\n";
-	error_msg += "   gcloud auth application-default login\n\n";
-	error_msg += "   Note: Regular 'gcloud auth login' is NOT sufficient.\n";
-	error_msg += "   You must use 'gcloud auth application-default login'.\n\n";
-	error_msg += "2. Use a service account key file:\n";
-	error_msg += "   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json\n\n";
-	error_msg += "3. Run in a GCP environment with default service account\n\n";
-	error_msg += "4. Create a secret in secret manager, one of:\n";
-	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER credential_chain);\n";
-	error_msg += "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER service_account, service_account_key_path = "
-	             "'/path/to/key.json');\n";
-	error_msg +=
-	    "   duckdb> CREATE SECRET gcp (TYPE gcp, PROVIDER access_token, access_token = 'your_access_token');\n\n";
-
-	throw IOException(error_msg);
+	throw IOException(NoCredentialsErrorMessage());
 }
 
 void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
@@ -827,6 +845,284 @@ int64_t GCSFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes)
 	auto &gsfh = handle.Cast<GCSFileHandle>();
 	auto write_buffer = char_ptr_cast(buffer);
 	return gsfh.WriteInto(write_buffer, nr_bytes);
+}
+
+// Translate a failed GCS list/probe status into a descriptive IOException. Mirrors the error handling
+// in Glob() so that a listing failure surfaces loudly instead of being mistaken for an empty/absent
+// directory. The latter would let a partitioned OVERWRITE skip its cleanup and silently mix old and
+// new data.
+static void ThrowGCSListError(const google::cloud::Status &status, const std::string &bucket, const std::string &path) {
+	switch (status.code()) {
+	case google::cloud::StatusCode::kUnauthenticated:
+		throw IOException(NoCredentialsErrorMessage());
+	case google::cloud::StatusCode::kPermissionDenied:
+		throw IOException("GCS Permission denied. Check bucket permissions for: " + bucket);
+	case google::cloud::StatusCode::kNotFound:
+		throw IOException("GCS bucket not found: " + bucket);
+	default:
+		throw IOException("Failed to list GCS objects under '" + path + "': " + status.message());
+	}
+}
+
+// Turn a parsed object key into a directory prefix (ending in '/'). GCSParsedUrl already strips
+// trailing slashes, so an empty key denotes the bucket root.
+std::string GCSDirectoryPrefix(const std::string &object_key) {
+	if (object_key.empty()) {
+		return "";
+	}
+	if (object_key.back() == '/') {
+		return object_key;
+	}
+	return object_key + "/";
+}
+
+bool GCSFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) {
+	GCSParsedUrl parsed_url;
+	parsed_url.ParseUrl(directory);
+
+	auto context = GetOrCreateStorageContext(opener, directory, parsed_url);
+	if (!context) {
+		return false;
+	}
+	auto &gcs_context = context->As<GCSContextState>();
+
+	auto prefix = GCSDirectoryPrefix(parsed_url.object_key);
+	// The bucket root is always considered to exist as a directory.
+	if (prefix.empty()) {
+		return true;
+	}
+
+	// GCS has no directories; a directory "exists" if at least one object shares its prefix. A listing
+	// failure must throw rather than report "absent": COPY gates its OVERWRITE cleanup on this result,
+	// so a swallowed error would let a populated directory be treated as new and mix stale + fresh data.
+	auto list = gcs_context.GetClient().ListObjects(parsed_url.bucket, gcs::Prefix(prefix), gcs::MaxResults(1));
+	for (auto &&object_metadata : list) {
+		if (!object_metadata) {
+			ThrowGCSListError(object_metadata.status(), parsed_url.bucket, directory);
+		}
+		return true;
+	}
+	// The range completed cleanly with no objects under the prefix: the directory is genuinely absent.
+	return false;
+}
+
+void GCSFileSystem::CreateDirectory(const string &directory, optional_ptr<FileOpener> opener) {
+	// No-op: GCS creates the enclosing "directory" prefix implicitly when an object is written.
+	// We still validate the URL so malformed paths fail early, matching local filesystem behavior.
+	GCSParsedUrl parsed_url;
+	parsed_url.ParseUrl(directory);
+}
+
+void GCSFileSystem::CreateDirectoriesRecursive(const string &path, optional_ptr<FileOpener> opener) {
+	// Directories are implicit in object storage, so there is nothing to create. We override the
+	// base implementation, which walks parent paths via Path::FromString - that does not understand
+	// gs:// URLs and would issue unnecessary DirectoryExists calls.
+	GCSParsedUrl parsed_url;
+	parsed_url.ParseUrl(path);
+}
+
+bool GCSFileSystem::ListFilesExtended(const string &directory, const std::function<void(OpenFileInfo &info)> &callback,
+                                      optional_ptr<FileOpener> opener) {
+	GCSParsedUrl parsed_url;
+	parsed_url.ParseUrl(directory);
+
+	auto context = GetOrCreateStorageContext(opener, directory, parsed_url);
+	if (!context) {
+		return false;
+	}
+	auto &gcs_context = context->As<GCSContextState>();
+
+	auto prefix = GCSDirectoryPrefix(parsed_url.object_key);
+
+	// A delimiter-based listing returns the immediate children of the prefix: objects become files
+	// and common prefixes become subdirectories. This mirrors the local filesystem, which reports
+	// the entries directly contained in a directory (relative names, not full paths).
+	auto list =
+	    gcs_context.GetClient().ListObjectsAndPrefixes(parsed_url.bucket, gcs::Prefix(prefix), gcs::Delimiter("/"));
+	for (auto &&item : list) {
+		if (!item) {
+			// Throw on a mid-pagination failure: callbacks for earlier pages have already fired, so
+			// returning here would silently yield a partial listing. CheckDirectory ignores the bool
+			// return, and a partial list would leave stale files behind during an OVERWRITE.
+			ThrowGCSListError(item.status(), parsed_url.bucket, directory);
+		}
+		if (absl::holds_alternative<gcs::ObjectMetadata>(*item)) {
+			const auto &object_metadata = absl::get<gcs::ObjectMetadata>(*item);
+			const auto &name = object_metadata.name();
+			// Skip a directory placeholder object whose name is exactly the prefix.
+			if (name.size() <= prefix.size()) {
+				continue;
+			}
+			OpenFileInfo info(name.substr(prefix.size()));
+			info.extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+			info.extended_info->options["type"] = Value("file");
+			info.extended_info->options["file_size"] =
+			    Value::BIGINT(UnsafeNumericCast<int64_t>(object_metadata.size()));
+			callback(info);
+		} else {
+			// A common prefix, e.g. "data/part=1/", is a subdirectory.
+			std::string sub_prefix = absl::get<std::string>(*item);
+			while (!sub_prefix.empty() && sub_prefix.back() == '/') {
+				sub_prefix.pop_back();
+			}
+			if (sub_prefix.size() <= prefix.size()) {
+				continue;
+			}
+			OpenFileInfo info(sub_prefix.substr(prefix.size()));
+			info.extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+			info.extended_info->options["type"] = Value("directory");
+			callback(info);
+		}
+	}
+	return true;
+}
+
+void GCSFileSystem::RemoveFile(const string &filename, optional_ptr<FileOpener> opener) {
+	GCSParsedUrl parsed_url;
+	parsed_url.ParseUrl(filename);
+
+	auto context = GetOrCreateStorageContext(opener, filename, parsed_url);
+	if (!context) {
+		throw IOException("Failed to create GCS context for removing file: " + filename);
+	}
+	auto &gcs_context = context->As<GCSContextState>();
+
+	auto status = gcs_context.GetClient().DeleteObject(parsed_url.bucket, parsed_url.object_key);
+	if (!status.ok()) {
+		throw IOException("Failed to delete GCS object '" + filename + "': " + status.message());
+	}
+	gcs_context.InvalidateCachedMetadata(parsed_url.bucket, parsed_url.object_key);
+	gcs_context.InvalidateCachedList(parsed_url.bucket);
+}
+
+bool GCSFileSystem::TryRemoveFile(const string &filename, optional_ptr<FileOpener> opener) {
+	GCSParsedUrl parsed_url;
+	parsed_url.ParseUrl(filename);
+
+	auto context = GetOrCreateStorageContext(opener, filename, parsed_url);
+	if (!context) {
+		return false;
+	}
+	auto &gcs_context = context->As<GCSContextState>();
+
+	auto status = gcs_context.GetClient().DeleteObject(parsed_url.bucket, parsed_url.object_key);
+	if (!status.ok()) {
+		if (status.code() == google::cloud::StatusCode::kNotFound) {
+			return false;
+		}
+		throw IOException("Failed to delete GCS object '" + filename + "': " + status.message());
+	}
+	gcs_context.InvalidateCachedMetadata(parsed_url.bucket, parsed_url.object_key);
+	gcs_context.InvalidateCachedList(parsed_url.bucket);
+	return true;
+}
+
+void GCSFileSystem::RemoveFiles(const vector<string> &filenames, optional_ptr<FileOpener> opener) {
+	// Like the base implementation this best-effort deletes each file (missing files are ignored), but
+	// it invalidates each affected bucket's list cache only once at the end instead of once per file
+	// (the base loops TryRemoveFile, each of which would rescan the whole list cache). This matters for
+	// OVERWRITE, which removes every existing file in a directory in one call.
+	std::set<std::string> touched_buckets;
+	std::unordered_map<std::string, shared_ptr<GCSContextState>> bucket_contexts;
+	for (const auto &filename : filenames) {
+		GCSParsedUrl parsed_url;
+		parsed_url.ParseUrl(filename);
+
+		auto context = GetOrCreateStorageContext(opener, filename, parsed_url);
+		if (!context) {
+			continue;
+		}
+		auto &gcs_context = context->As<GCSContextState>();
+
+		auto status = gcs_context.GetClient().DeleteObject(parsed_url.bucket, parsed_url.object_key);
+		if (!status.ok() && status.code() != google::cloud::StatusCode::kNotFound) {
+			throw IOException("Failed to delete GCS object '" + filename + "': " + status.message());
+		}
+		gcs_context.InvalidateCachedMetadata(parsed_url.bucket, parsed_url.object_key);
+		touched_buckets.insert(parsed_url.bucket);
+		bucket_contexts.emplace(parsed_url.bucket, context);
+	}
+
+	for (const auto &bucket : touched_buckets) {
+		bucket_contexts[bucket]->As<GCSContextState>().InvalidateCachedList(bucket);
+	}
+}
+
+void GCSFileSystem::RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener) {
+	GCSParsedUrl parsed_url;
+	parsed_url.ParseUrl(directory);
+
+	auto context = GetOrCreateStorageContext(opener, directory, parsed_url);
+	if (!context) {
+		throw IOException("Failed to create GCS context for removing directory: " + directory);
+	}
+	auto &gcs_context = context->As<GCSContextState>();
+
+	auto prefix = GCSDirectoryPrefix(parsed_url.object_key);
+	auto client = gcs_context.GetClient();
+
+	// Recursively delete every object under the prefix (no delimiter -> all descendants).
+	auto list = client.ListObjects(parsed_url.bucket, gcs::Prefix(prefix));
+	for (auto &&object_metadata : list) {
+		if (!object_metadata) {
+			ThrowGCSListError(object_metadata.status(), parsed_url.bucket, directory);
+		}
+		auto status = client.DeleteObject(parsed_url.bucket, object_metadata->name());
+		if (!status.ok() && status.code() != google::cloud::StatusCode::kNotFound) {
+			throw IOException("Failed to delete GCS object '" + object_metadata->name() + "': " + status.message());
+		}
+		gcs_context.InvalidateCachedMetadata(parsed_url.bucket, object_metadata->name());
+	}
+	gcs_context.InvalidateCachedList(parsed_url.bucket);
+}
+
+void GCSFileSystem::MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener) {
+	GCSParsedUrl source_url;
+	source_url.ParseUrl(source);
+	GCSParsedUrl target_url;
+	target_url.ParseUrl(target);
+
+	auto context = GetOrCreateStorageContext(opener, source, source_url);
+	if (!context) {
+		throw IOException("Failed to create GCS context for moving file: " + source);
+	}
+	auto &gcs_context = context->As<GCSContextState>();
+	auto client = gcs_context.GetClient();
+
+	std::optional<gcs::ObjectMetadata> result_metadata;
+
+	// Within a single bucket, prefer the native server-side move (the Objects: move RPC). On
+	// Hierarchical-Namespace buckets this is a metadata-only atomic rename; on flat buckets GCS still
+	// performs the move server-side in a single call. MoveObject cannot move across buckets, so for a
+	// cross-bucket move, or if the move RPC is ever unavailable, we fall back to a server-side copy +
+	// delete below, which works on any bucket but is not atomic (a failed delete can leave the source).
+	if (source_url.bucket == target_url.bucket) {
+		auto moved = client.MoveObject(source_url.bucket, source_url.object_key, target_url.object_key);
+		if (moved) {
+			result_metadata = std::move(*moved);
+		}
+	}
+
+	if (!result_metadata.has_value()) {
+		auto rewritten = client.RewriteObjectBlocking(source_url.bucket, source_url.object_key, target_url.bucket,
+		                                              target_url.object_key);
+		if (!rewritten) {
+			throw IOException("Failed to move GCS object from '" + source + "' to '" + target +
+			                  "': " + rewritten.status().message());
+		}
+		auto status = client.DeleteObject(source_url.bucket, source_url.object_key);
+		if (!status.ok() && status.code() != google::cloud::StatusCode::kNotFound) {
+			throw IOException("Failed to delete source GCS object '" + source + "' after move: " + status.message());
+		}
+		result_metadata = std::move(*rewritten);
+	}
+
+	gcs_context.InvalidateCachedMetadata(source_url.bucket, source_url.object_key);
+	gcs_context.SetCachedMetadata(target_url.bucket, target_url.object_key, *result_metadata);
+	gcs_context.InvalidateCachedList(source_url.bucket);
+	if (target_url.bucket != source_url.bucket) {
+		gcs_context.InvalidateCachedList(target_url.bucket);
+	}
 }
 
 } // namespace duckdb

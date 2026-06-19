@@ -69,6 +69,9 @@ public:
 	void InvalidateCachedMetadata(const std::string &bucket, const std::string &object_key);
 	std::optional<vector<OpenFileInfo>> GetCachedList(const std::string &bucket, const std::string &prefix);
 	void SetCachedList(const std::string &bucket, const std::string &prefix, const vector<OpenFileInfo> &results);
+	// Drop all cached listings for a bucket. Called after writes/deletes so that subsequent globs
+	// observe the mutated set of objects instead of a stale cached listing.
+	void InvalidateCachedList(const std::string &bucket);
 
 	inline std::string MakeMetadataKey(const std::string &bucket, const std::string &object_key) {
 		return "metadata:" + bucket + ":" + object_key;
@@ -125,6 +128,10 @@ public:
 				// use the correct generation instead of a stale one.
 				context->SetCachedMetadata(bucket, object_key, *metadata);
 			}
+			// A newly written object may not be reflected in a cached listing, so drop the
+			// bucket's list cache to keep subsequent globs (e.g. reading back a partitioned
+			// dataset) consistent with what was just written.
+			context->InvalidateCachedList(bucket);
 			write_stream = nullptr;
 		}
 	}
@@ -214,11 +221,30 @@ public:
 	void Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override;
 	int64_t Write(FileHandle &handle, void *buffer, int64_t nr_bytes) override;
 
+	// Directory and file write operations. GCS has no real directories; a "directory" is just a
+	// shared object-key prefix. These are required so DuckDB can write to a directory target, most
+	// notably partitioned (Hive) COPY writes, on par with the local filesystem.
+	bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
+	void CreateDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
+	void CreateDirectoriesRecursive(const string &path, optional_ptr<FileOpener> opener = nullptr) override;
+	void RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
+	void RemoveFile(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
+	bool TryRemoveFile(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
+	void RemoveFiles(const vector<string> &filenames, optional_ptr<FileOpener> opener = nullptr) override;
+	void MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener = nullptr) override;
+
 protected:
 	unique_ptr<FileHandle> OpenFileExtended(const OpenFileInfo &info, FileOpenFlags flags,
 	                                        optional_ptr<FileOpener> opener) override;
 
 	bool SupportsOpenFileExtended() const override {
+		return true;
+	}
+
+	bool ListFilesExtended(const string &directory, const std::function<void(OpenFileInfo &info)> &callback,
+	                       optional_ptr<FileOpener> opener) override;
+
+	bool SupportsListFilesExtended() const override {
 		return true;
 	}
 
@@ -244,5 +270,10 @@ private:
 
 // Helper function to safely calculate max read size, preventing integer overflow
 int64_t SafeMaxRead(idx_t offset, idx_t length);
+
+// Convert a parsed object key into a directory prefix (a key ending in '/', or the empty string for
+// the bucket root). Used to translate directory paths into GCS object-key prefixes for listing,
+// existence checks and recursive deletes.
+std::string GCSDirectoryPrefix(const std::string &object_key);
 
 } // namespace duckdb

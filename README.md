@@ -14,6 +14,19 @@ Note: Because the core `httpfs` extension registers itself as a handler for
 `gs://` and `gcs://` URLs, this extension also supports `gcss://` as a way to
 force its usage.
 
+## Installing
+
+This is a [community extension](https://duckdb.org/community_extensions/), so
+it must be installed `FROM community`:
+
+```sql
+INSTALL gcs FROM community;
+LOAD gcs;
+```
+
+Plain `INSTALL gcs;` looks in DuckDB's core extension repository, which this
+extension is not published to, and fails with an HTTP 404.
+
 ## Writing
 
 In addition to reading, the extension supports writing single files as well as
@@ -147,8 +160,8 @@ gcloud auth application-default login
 -- Load the extension (for development/testing)
 LOAD 'build/release/extension/gcs/gcs.duckdb_extension';
 
--- Or if installed
-INSTALL gcs;
+-- Or install the published extension
+INSTALL gcs FROM community;
 LOAD gcs;
 ```
 

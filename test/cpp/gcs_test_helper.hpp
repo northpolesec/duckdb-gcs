@@ -60,7 +60,7 @@ public:
 	}
 
 	// Helper to execute query and get result
-	unique_ptr<MaterializedQueryResult> Query(const std::string &query) {
+	unique_ptr<QueryResult> Query(const std::string &query) {
 		return con->Query(query);
 	}
 

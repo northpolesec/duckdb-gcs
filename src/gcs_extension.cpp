@@ -5,6 +5,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/config.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "gcs_filesystem.hpp"
 #include "gcs_secret.hpp"
 

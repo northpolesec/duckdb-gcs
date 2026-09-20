@@ -9,11 +9,11 @@ namespace duckdb {
 static unique_ptr<CreateSecretFunction> GetGCPCreateSecretFunction() {
 	// Create the secret create function for GCP
 	SecretType secret_type;
-	secret_type.name = CreateGCSSecretFunctions::GetGCSSecretType();
+	secret_type.name = Identifier(CreateGCSSecretFunctions::GetGCSSecretType());
 	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
 	secret_type.default_provider = GCSSecretProvider::CREDENTIAL_CHAIN;
 
-	CreateSecretFunction function = {secret_type.name, "gcp",
+	CreateSecretFunction function = {secret_type.name.GetIdentifierName(), "gcp",
 	                                 CreateGCSSecretFunctions::CreateGCSSecretFromCredentialChain};
 	function.named_parameters["service_account_key_path"] = LogicalType::VARCHAR;
 	function.named_parameters["service_account_email"] = LogicalType::VARCHAR;
@@ -26,27 +26,27 @@ static unique_ptr<CreateSecretFunction> GetGCPCreateSecretFunction() {
 void CreateGCSSecretFunctions::Register(ExtensionLoader &loader) {
 	// Register the secret type
 	SecretType secret_type;
-	secret_type.name = GetGCSSecretType();
+	secret_type.name = Identifier(GetGCSSecretType());
 	secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
 	secret_type.default_provider = GCSSecretProvider::CREDENTIAL_CHAIN;
 	loader.RegisterSecretType(secret_type);
 
 	// Service Account provider
-	CreateSecretFunction service_account_function = {secret_type.name, GCSSecretProvider::SERVICE_ACCOUNT,
-	                                                 CreateGCSSecretFromServiceAccount};
+	CreateSecretFunction service_account_function = {
+	    secret_type.name.GetIdentifierName(), GCSSecretProvider::SERVICE_ACCOUNT, CreateGCSSecretFromServiceAccount};
 	service_account_function.named_parameters["service_account_key_path"] = LogicalType::VARCHAR;
 	service_account_function.named_parameters["service_account_email"] = LogicalType::VARCHAR;
 	service_account_function.named_parameters["project_id"] = LogicalType::VARCHAR;
 	loader.RegisterFunction(service_account_function);
 
 	// Credential Chain provider (default)
-	CreateSecretFunction credential_chain_function = {secret_type.name, GCSSecretProvider::CREDENTIAL_CHAIN,
-	                                                  CreateGCSSecretFromCredentialChain};
+	CreateSecretFunction credential_chain_function = {
+	    secret_type.name.GetIdentifierName(), GCSSecretProvider::CREDENTIAL_CHAIN, CreateGCSSecretFromCredentialChain};
 	credential_chain_function.named_parameters["project_id"] = LogicalType::VARCHAR;
 	loader.RegisterFunction(credential_chain_function);
 
 	// Access Token provider
-	CreateSecretFunction access_token_function = {secret_type.name, GCSSecretProvider::ACCESS_TOKEN,
+	CreateSecretFunction access_token_function = {secret_type.name.GetIdentifierName(), GCSSecretProvider::ACCESS_TOKEN,
 	                                              CreateGCSSecretFromAccessToken};
 	access_token_function.named_parameters["access_token"] = LogicalType::VARCHAR;
 	access_token_function.named_parameters["project_id"] = LogicalType::VARCHAR;

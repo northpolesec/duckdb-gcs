@@ -428,6 +428,12 @@ shared_ptr<GCSContextState> GCSFileSystem::GetOrCreateStorageContext(optional_pt
 	auto context_key = GetContextPrefix() + parsed_url.bucket;
 	auto &registered_state = client_context->registered_state;
 	auto result = registered_state->Get<GCSContextState>(context_key);
+	// The client's retry policy is fixed when it is built, so a changed gcs_retry_timeout needs a new
+	// context. Handles that already hold the old context keep using it.
+	if (result && result->GetRetryTimeoutSeconds() != ParseGCSReadOptions(opener).retry_timeout_seconds) {
+		registered_state->Remove(context_key);
+		result = nullptr;
+	}
 	if (!result) {
 		result = CreateStorageContext(opener, path, parsed_url);
 		registered_state->Insert(context_key, result);

@@ -87,6 +87,11 @@ public:
 		return client;
 	}
 
+	//! The retry timeout the client was built with. A client's retry policy is fixed at construction.
+	inline int32_t GetRetryTimeoutSeconds() const {
+		return read_options.retry_timeout_seconds;
+	}
+
 	template <class TARGET>
 	TARGET &As() {
 		D_ASSERT(dynamic_cast<TARGET *>(this));

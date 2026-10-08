@@ -18,3 +18,17 @@ SELECT count(*) FROM read_parquet('gcss://duckdb-gcs-testing/taxi_2019_04.parque
 ----
 No valid GCP credentials found
 
+
+# Retry timeout setting defaults to 60 seconds and can be changed
+query I
+SELECT current_setting('gcs_retry_timeout');
+----
+60
+
+statement ok
+SET gcs_retry_timeout = 120;
+
+query I
+SELECT current_setting('gcs_retry_timeout');
+----
+120

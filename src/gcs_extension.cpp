@@ -87,6 +87,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Default is 1000. When limit is reached, least recently used entries are evicted.",
 	                          LogicalType::UBIGINT, Value::UBIGINT(default_read_options.max_list_cache_entries));
 
+	config.AddExtensionOption("gcs_retry_timeout",
+	                          "Seconds to keep retrying a transient error (such as HTTP 503) on a single request "
+	                          "before failing. Default is 60.",
+	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.retry_timeout_seconds));
+
 	config.AddExtensionOption("gcs_transfer_concurrency",
 	                          "Number of concurrent worker threads to use when reading. "
 	                          "Default is 5.",

@@ -32,3 +32,14 @@ query I
 SELECT current_setting('gcs_retry_timeout');
 ----
 120
+
+# An invalid retry timeout is rejected when it is set, and the previous value is kept
+statement error
+SET gcs_retry_timeout = 0;
+----
+gcs_retry_timeout must be at least 1 second
+
+query I
+SELECT current_setting('gcs_retry_timeout');
+----
+120

@@ -142,8 +142,7 @@ public:
 			// was never created. Throw so the writer (e.g. a COPY or a DuckLake commit) fails instead of
 			// recording a file that does not exist.
 			if (!metadata) {
-				throw IOException("Failed to finalize write to GCS for gs://" + bucket + "/" + object_key + ": " +
-				                  metadata.status().message());
+				throw IOException("Failed to finalize write to GCS for " + path + ": " + metadata.status().message());
 			}
 		}
 	}

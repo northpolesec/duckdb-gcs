@@ -36,6 +36,9 @@ struct GCSReadOptions {
 
 	bool enable_grpc = false;
 
+	// How long the client keeps retrying a transient error (e.g. HTTP 503) on one request.
+	int32_t retry_timeout_seconds = 60;
+
 	// Cache size limits to prevent unbounded memory growth
 	idx_t max_metadata_cache_entries = 10000;
 	idx_t max_list_cache_entries = 1000;
@@ -84,6 +87,11 @@ public:
 		return client;
 	}
 
+	//! The retry timeout the client was built with. A client's retry policy is fixed at construction.
+	inline int32_t GetRetryTimeoutSeconds() const {
+		return read_options.retry_timeout_seconds;
+	}
+
 	template <class TARGET>
 	TARGET &As() {
 		D_ASSERT(dynamic_cast<TARGET *>(this));
@@ -120,10 +128,7 @@ public:
 		if (write_stream != nullptr) {
 			write_stream->Close();
 			auto metadata = write_stream->metadata();
-			if (!metadata) {
-				fprintf(stderr, "Failed to finalize write from GCS: %s", metadata.status().message().c_str());
-				fflush(stderr);
-			} else {
+			if (metadata) {
 				// Update the cache with the new metadata so subsequent reads
 				// use the correct generation instead of a stale one.
 				context->SetCachedMetadata(bucket, object_key, *metadata);
@@ -133,11 +138,23 @@ public:
 			// dataset) consistent with what was just written.
 			context->InvalidateCachedList(bucket);
 			write_stream = nullptr;
+			// The resumable upload is only finalized here, so an unfinalized upload means the object
+			// was never created. Throw so the writer (e.g. a COPY or a DuckLake commit) fails instead of
+			// recording a file that does not exist.
+			if (!metadata) {
+				throw IOException("Failed to finalize write to GCS for " + path + ": " + metadata.status().message());
+			}
 		}
 	}
 
 	~GCSFileHandle() override {
-		Close();
+		// Destructors must not throw. Callers that care about the outcome call Close() explicitly.
+		try {
+			Close();
+		} catch (std::exception &ex) {
+			fprintf(stderr, "Failed to finalize write from GCS: %s\n", ex.what());
+			fflush(stderr);
+		}
 	}
 
 	inline gcs::Client GetClient() {

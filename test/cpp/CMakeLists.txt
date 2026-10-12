@@ -10,7 +10,7 @@ find_package(google_cloud_cpp_storage REQUIRED)
 set(TEST_SOURCES
     test_main.cpp test_cache_behavior.cpp test_file_operations.cpp
     test_glob_operations.cpp test_generation_pinning.cpp
-    test_directory_operations.cpp)
+    test_directory_operations.cpp test_emulation.cpp)
 
 # Add benchmarks only on Clang/GNU
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

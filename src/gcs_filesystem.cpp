@@ -33,10 +33,38 @@ public:
 	}
 };
 
+static std::optional<std::string> GetEmulatorEndpoint() {
+	const char *emulator_env = std::getenv("STORAGE_EMULATOR_HOST");
+	if (!emulator_env) {
+		emulator_env = std::getenv("CLOUD_STORAGE_EMULATOR_ENDPOINT");
+	}
+	if (!emulator_env || *emulator_env == '\0') {
+		return std::nullopt;
+	}
+
+	std::string endpoint = emulator_env;
+
+	if (endpoint.rfind("http://", 0) != 0 && endpoint.rfind("https://", 0) != 0) {
+		endpoint = "http://" + endpoint;
+	}
+
+	return endpoint;
+}
+
 gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> credentials,
                                  const std::string &ca_roots_path, const GCSReadOptions &read_options) {
 	auto options = google::cloud::Options {};
-	options.set<google::cloud::UnifiedCredentialsOption>(std::move(credentials));
+
+	auto emulator_endpoint = GetEmulatorEndpoint();
+
+	if (emulator_endpoint) {
+		options.set<gcs::RestEndpointOption>(*emulator_endpoint);
+		options.set<gcs::IamEndpointOption>(*emulator_endpoint + "/iamapi");
+		options.set<google::cloud::UnifiedCredentialsOption>(google::cloud::MakeInsecureCredentials());
+	} else {
+		options.set<google::cloud::UnifiedCredentialsOption>(std::move(credentials));
+	}
+
 	options.set<gcs::DownloadBufferSizeOption>(read_options.buffer_size);
 	options.set<gcs::RetryPolicyOption>(gcs::LimitedErrorCountRetryPolicy(3).clone());
 	options.set<gcs::BackoffPolicyOption>(
@@ -47,7 +75,7 @@ gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> cre
 	}
 
 #ifdef GCS_ENABLE_GRPC
-	if (read_options.enable_grpc) {
+	if (read_options.enable_grpc && !emulator_endpoint) {
 		return gcs::MakeGrpcClient(options);
 	}
 #endif
@@ -763,9 +791,15 @@ const SecretMatch LookupSecret(optional_ptr<FileOpener> opener, const std::strin
 shared_ptr<GCSContextState> GCSFileSystem::CreateStorageContext(optional_ptr<FileOpener> opener,
                                                                 const std::string &path,
                                                                 const GCSParsedUrl &parsed_url) {
+	auto read_options = ParseGCSReadOptions(opener);
+
+	if (GetEmulatorEndpoint()) {
+		auto client = BuildOptimizedClient(nullptr, ca_roots_path, read_options);
+		return make_shared_ptr<GCSContextState>(std::move(client), read_options);
+	}
+
 	auto secret_match = LookupSecret(opener, path);
 	if (secret_match.HasMatch()) {
-		auto read_options = ParseGCSReadOptions(opener);
 		auto &kv_secret = dynamic_cast<const KeyValueSecret &>(secret_match.GetSecret());
 		auto provider = kv_secret.TryGetValue("provider");
 

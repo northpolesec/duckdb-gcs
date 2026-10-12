@@ -147,15 +147,9 @@ public:
 		}
 	}
 
-	~GCSFileHandle() override {
-		// Destructors must not throw. Callers that care about the outcome call Close() explicitly.
-		try {
-			Close();
-		} catch (std::exception &ex) {
-			fprintf(stderr, "Failed to finalize write from GCS: %s\n", ex.what());
-			fflush(stderr);
-		}
-	}
+	// If Close() was not called the write did not finish, so drop the stream without finalizing it.
+	// With auto-finalize disabled this sends no request and creates no object.
+	~GCSFileHandle() override = default;
 
 	inline gcs::Client GetClient() {
 		return context->GetClient();

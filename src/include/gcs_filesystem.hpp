@@ -189,6 +189,11 @@ public:
 		return path.rfind("gs://", 0) == 0 || path.rfind("gcs://", 0) == 0 || path.rfind("gcss://", 0) == 0;
 	}
 
+	// Keep gs:// and gcs:// even when httpfs, which also claims them, is loaded after this extension
+	bool IsManuallySet() override {
+		return true;
+	}
+
 	// FS methods
 	duckdb::unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags,
 	                                        optional_ptr<FileOpener> opener = nullptr) override;

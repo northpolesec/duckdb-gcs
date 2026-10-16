@@ -10,9 +10,11 @@ using the S3 compatibility API. This is not as fast as the native API and it
 requires using HMAC keys. HMAC keys are, by default, disabled by organization
 policy for service accounts.
 
-Note: Because the core `httpfs` extension registers itself as a handler for
-`gs://` and `gcs://` URLs, this extension also supports `gcss://` as a way to
-force its usage.
+Note: The core `httpfs` extension also registers itself as a handler for
+`gs://` and `gcs://` URLs. This extension takes precedence for those URLs
+whatever the order in which the two are loaded, so httpfs HMAC secrets are not
+used for them while this extension is loaded. `gcss://` is also supported as a
+scheme that only this extension handles.
 
 ## Installing
 

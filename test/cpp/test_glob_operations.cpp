@@ -99,6 +99,21 @@ TEST_CASE("GCS Glob: Prefix matching", "[gcs][glob]") {
 	}
 }
 
+TEST_CASE("GCS Glob: literal prefix sent with matchGlob", "[gcs][glob]") {
+	// Glob() lists with Prefix(GCSGlobLiteralPrefix(pattern)) beside MatchGlob(pattern):
+	// a prefixless list is authorized at bucket level, so managed-folder-scoped
+	// callers are denied without it.
+	REQUIRE(GCSGlobLiteralPrefix("path/to/files/*.parquet") == "path/to/files/");
+	REQUIRE(GCSGlobLiteralPrefix("year=2024/**/*.parquet") == "year=2024/");
+	REQUIRE(GCSGlobLiteralPrefix("data/file?.csv") == "data/file");
+	REQUIRE(GCSGlobLiteralPrefix("data/[ab].csv") == "data/");
+	REQUIRE(GCSGlobLiteralPrefix("data/{a,b}.csv") == "data/");
+	REQUIRE(GCSGlobLiteralPrefix("data/\\*literal.csv") == "data/");
+	REQUIRE(GCSGlobLiteralPrefix("ab/cd/de/my_file.csv") == "ab/cd/de/my_file.csv");
+	REQUIRE(GCSGlobLiteralPrefix("*.parquet") == "");
+	REQUIRE(GCSGlobLiteralPrefix("") == "");
+}
+
 TEST_CASE("GCS Glob: Hierarchical prefixes", "[gcs][glob][cache]") {
 	GCSReadOptions options;
 	options.enable_caches = true;

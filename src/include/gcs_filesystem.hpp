@@ -275,5 +275,7 @@ int64_t SafeMaxRead(idx_t offset, idx_t length);
 // the bucket root). Used to translate directory paths into GCS object-key prefixes for listing,
 // existence checks and recursive deletes.
 std::string GCSDirectoryPrefix(const std::string &object_key);
+// The literal part of a matchGlob pattern, up to its first glob character.
+std::string GCSGlobLiteralPrefix(const std::string &pattern);
 
 } // namespace duckdb

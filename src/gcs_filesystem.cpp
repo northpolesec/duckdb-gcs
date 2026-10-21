@@ -527,8 +527,13 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 	// List objects with pattern
 	try {
 		// TODO: Add pagination if the number of results is > the max specified here
-		auto list_request =
-		    gcs_context.GetClient().ListObjects(parsed_url.bucket, gcs::MatchGlob(pattern), gcs::MaxResults(10000));
+		// Send the pattern's literal part as the prefix too. GCS authorizes a list without a
+		// prefix at bucket level, so without it a caller whose access is scoped to a managed
+		// folder (roles granted on a prefix, not the bucket) is denied even for a plain path
+		// inside that folder. With it, the list is also narrower server-side.
+		auto list_request = gcs_context.GetClient().ListObjects(parsed_url.bucket,
+		                                                        gcs::Prefix(GCSGlobLiteralPrefix(pattern)),
+		                                                        gcs::MatchGlob(pattern), gcs::MaxResults(10000));
 
 		for (auto &&object_metadata : list_request) {
 			if (!object_metadata) {
@@ -862,6 +867,14 @@ static void ThrowGCSListError(const google::cloud::Status &status, const std::st
 	default:
 		throw IOException("Failed to list GCS objects under '" + path + "': " + status.message());
 	}
+}
+
+// The literal part of a matchGlob pattern: everything before its first glob character
+// (*, ?, [, { or the escape \). A pattern with none is its own prefix, so a plain path
+// lists exactly that key's prefix.
+std::string GCSGlobLiteralPrefix(const std::string &pattern) {
+	auto pos = pattern.find_first_of("*?[{\\");
+	return pos == std::string::npos ? pattern : pattern.substr(0, pos);
 }
 
 // Turn a parsed object key into a directory prefix (ending in '/'). GCSParsedUrl already strips

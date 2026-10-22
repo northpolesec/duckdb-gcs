@@ -38,7 +38,8 @@ gcs::Client BuildOptimizedClient(std::shared_ptr<google::cloud::Credentials> cre
 	auto options = google::cloud::Options {};
 	options.set<google::cloud::UnifiedCredentialsOption>(std::move(credentials));
 	options.set<gcs::DownloadBufferSizeOption>(read_options.buffer_size);
-	options.set<gcs::RetryPolicyOption>(gcs::LimitedErrorCountRetryPolicy(3).clone());
+	options.set<gcs::RetryPolicyOption>(
+	    gcs::LimitedTimeRetryPolicy(std::chrono::seconds(read_options.retry_timeout_seconds)).clone());
 	options.set<gcs::BackoffPolicyOption>(
 	    google::cloud::ExponentialBackoffPolicy(std::chrono::milliseconds(100), std::chrono::seconds(5), 2.0).clone());
 
@@ -427,6 +428,12 @@ shared_ptr<GCSContextState> GCSFileSystem::GetOrCreateStorageContext(optional_pt
 	auto context_key = GetContextPrefix() + parsed_url.bucket;
 	auto &registered_state = client_context->registered_state;
 	auto result = registered_state->Get<GCSContextState>(context_key);
+	// The client's retry policy is fixed when it is built, so a changed gcs_retry_timeout needs a new
+	// context. Handles that already hold the old context keep using it.
+	if (result && result->GetRetryTimeoutSeconds() != ParseGCSReadOptions(opener).retry_timeout_seconds) {
+		registered_state->Remove(context_key);
+		result = nullptr;
+	}
 	if (!result) {
 		result = CreateStorageContext(opener, path, parsed_url);
 		registered_state->Insert(context_key, result);
@@ -443,6 +450,13 @@ GCSReadOptions GCSFileSystem::ParseGCSReadOptions(optional_ptr<FileOpener> opene
 	}
 
 	Value value;
+	if (FileOpener::TryGetCurrentSetting(opener, "gcs_retry_timeout", value)) {
+		auto timeout = value.GetValue<int32_t>();
+		if (timeout < 1) {
+			throw InvalidInputException("gcs_retry_timeout must be at least 1 second (got %d)", timeout);
+		}
+		options.retry_timeout_seconds = timeout;
+	}
 	if (FileOpener::TryGetCurrentSetting(opener, "gcs_metadata_cache_ttl", value)) {
 		auto ttl = value.GetValue<int32_t>();
 		if (ttl < 0) {

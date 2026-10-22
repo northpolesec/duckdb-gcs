@@ -44,6 +44,13 @@ std::string FindCACertFile(DatabaseInstance &db) {
 	return "";
 }
 
+// Reject an invalid gcs_retry_timeout at SET time rather than on the next GCS operation.
+static void ValidateRetryTimeout(ClientContext &context, SetScope scope, Value &parameter) {
+	if (parameter.IsNull() || parameter.GetValue<int32_t>() < 1) {
+		throw InvalidInputException("gcs_retry_timeout must be at least 1 second (got %s)", parameter.ToString());
+	}
+}
+
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &instance = loader.GetDatabaseInstance();
 
@@ -86,6 +93,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Maximum number of list cache entries to prevent unbounded memory growth. "
 	                          "Default is 1000. When limit is reached, least recently used entries are evicted.",
 	                          LogicalType::UBIGINT, Value::UBIGINT(default_read_options.max_list_cache_entries));
+
+	config.AddExtensionOption("gcs_retry_timeout",
+	                          "Seconds to keep retrying a transient error (such as HTTP 503) on a single request "
+	                          "before failing. Default is 60.",
+	                          LogicalType::INTEGER, Value::INTEGER(default_read_options.retry_timeout_seconds),
+	                          ValidateRetryTimeout);
 
 	config.AddExtensionOption("gcs_transfer_concurrency",
 	                          "Number of concurrent worker threads to use when reading. "

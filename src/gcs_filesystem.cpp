@@ -527,8 +527,8 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 	// List objects with pattern
 	try {
 		// TODO: Add pagination if the number of results is > the max specified here
-		auto list_request =
-		    gcs_context.GetClient().ListObjects(parsed_url.bucket, gcs::MatchGlob(pattern), gcs::MaxResults(10000));
+		auto list_request = gcs_context.GetClient().ListObjects(parsed_url.bucket, gcs::Prefix(GCSGlobPrefix(pattern)),
+		                                                        gcs::MatchGlob(pattern), gcs::MaxResults(10000));
 
 		for (auto &&object_metadata : list_request) {
 			if (!object_metadata) {
@@ -874,6 +874,10 @@ std::string GCSDirectoryPrefix(const std::string &object_key) {
 		return object_key;
 	}
 	return object_key + "/";
+}
+
+std::string GCSGlobPrefix(const std::string &pattern) {
+	return pattern.substr(0, pattern.find_first_of("*?[]{}\\"));
 }
 
 bool GCSFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) {

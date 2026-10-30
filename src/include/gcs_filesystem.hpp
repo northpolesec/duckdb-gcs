@@ -292,4 +292,7 @@ int64_t SafeMaxRead(idx_t offset, idx_t length);
 // existence checks and recursive deletes.
 std::string GCSDirectoryPrefix(const std::string &object_key);
 
+// The literal part of a glob pattern before its first special character.
+std::string GCSGlobPrefix(const std::string &pattern);
+
 } // namespace duckdb

@@ -89,12 +89,17 @@ TEST_CASE("GCS Glob: Prefix matching", "[gcs][glob]") {
 		    {"gs://bucket/year=2024/**/*.parquet", "bucket", "year=2024/"},
 		    {"gs://bucket/prefix", "bucket", "prefix"},
 		    {"gs://bucket/", "bucket", ""},
+		    {"gs://bucket/data/file?.csv", "bucket", "data/file"},
+		    {"gs://bucket/data/[ab].csv", "bucket", "data/"},
+		    {"gs://bucket/data/{a,b}.csv", "bucket", "data/"},
+		    {"gs://bucket/data/a\\*b.csv", "bucket", "data/a"},
 		};
 
 		for (const auto &test : test_cases) {
 			GCSParsedUrl parsed;
 			parsed.ParseUrl(test.path);
 			REQUIRE(parsed.bucket == test.expected_bucket);
+			REQUIRE(GCSGlobPrefix(parsed.object_key) == test.expected_prefix);
 		}
 	}
 }

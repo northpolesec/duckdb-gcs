@@ -645,6 +645,11 @@ bool GCSUseListedGeneration(GCSFileHandle &handle, const OpenFileInfo &info) {
 }
 
 void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
+	// The generation is fixed once the handle is listed or has read, so only earlier reads need the lock
+	std::unique_lock<std::mutex> lock;
+	if (!handle.listed && !handle.has_read) {
+		lock = std::unique_lock<std::mutex>(handle.first_read_lock);
+	}
 	try {
 		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
 	} catch (const GCSStatusException &e) {

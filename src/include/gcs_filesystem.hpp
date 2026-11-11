@@ -157,6 +157,8 @@ public:
 	bool listed = false;
 	// Data has been read, so switching generations would mix two objects
 	std::atomic<bool> has_read {false};
+	// Serializes an unlisted handle's reads until one succeeds, since a read may switch its generation until then
+	std::mutex first_read_lock;
 
 	// Read buffer
 	duckdb::unique_ptr<data_t[]> read_buffer;

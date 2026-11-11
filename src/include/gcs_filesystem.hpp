@@ -5,6 +5,7 @@
 #include <google/cloud/storage/grpc_plugin.h>
 #endif
 #include <google/cloud/storage/object_metadata.h>
+#include <atomic>
 #include <unordered_map>
 #include <mutex>
 #include <chrono>
@@ -152,6 +153,10 @@ public:
 	idx_t length;
 	timestamp_t last_modified;
 	std::int64_t generation = 0;
+	// Opened at the generation a listing returned, which every handle of the listed file reads
+	bool listed = false;
+	// Data has been read, so switching generations would mix two objects
+	std::atomic<bool> has_read {false};
 
 	// Read buffer
 	duckdb::unique_ptr<data_t[]> read_buffer;
@@ -283,5 +288,12 @@ std::string GCSDirectoryPrefix(const std::string &object_key);
 
 // The literal part of a glob pattern before its first special character.
 std::string GCSGlobPrefix(const std::string &pattern);
+
+// A listed object's size, last-modified time and generation, as the OpenFileInfo Glob returns.
+OpenFileInfo GCSListedFileInfo(const std::string &path, const gcs::ObjectMetadata &metadata);
+
+// Opens the handle at the size, last-modified time and generation of a GCSListedFileInfo. Returns false if the
+// info is not from a listing.
+bool GCSUseListedGeneration(GCSFileHandle &handle, const OpenFileInfo &info);
 
 } // namespace duckdb

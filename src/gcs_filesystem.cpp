@@ -550,7 +550,7 @@ vector<OpenFileInfo> GCSFileSystem::Glob(const string &path, FileOpener *opener)
 			}
 
 			std::string full_path = parsed_url.prefix + "://" + parsed_url.bucket + "/" + object_metadata->name();
-			results.push_back(OpenFileInfo(full_path));
+			results.push_back(GCSListedFileInfo(full_path, *object_metadata));
 
 			// Also cache metadata for this file - we've already got it, we might as well
 			// use it instead of retrieving it again.
@@ -602,7 +602,7 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 	    make_uniq<GCSFileHandle>(*this, info, flags, read_options, parsed_url.bucket, parsed_url.object_key, context);
 	handle->TryAddLogger(*opener);
 
-	if (!flags.OpenForWriting()) {
+	if (!flags.OpenForWriting() && !GCSUseListedGeneration(*handle, info)) {
 		// Load file metadata
 		LoadFileInfo(*handle);
 	}
@@ -610,21 +610,62 @@ duckdb::unique_ptr<GCSFileHandle> GCSFileSystem::CreateHandle(const OpenFileInfo
 	return handle;
 }
 
+static timestamp_t GCSLastModified(const gcs::ObjectMetadata &metadata) {
+	auto duration = metadata.updated().time_since_epoch();
+	return timestamp_t(std::chrono::duration_cast<std::chrono::microseconds>(duration).count());
+}
+
+OpenFileInfo GCSListedFileInfo(const std::string &path, const gcs::ObjectMetadata &metadata) {
+	OpenFileInfo info(path);
+	info.extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+	auto &options = info.extended_info->options;
+	options["file_size"] = Value::UBIGINT(metadata.size());
+	options["last_modified"] = Value::TIMESTAMP(GCSLastModified(metadata));
+	options["generation"] = Value::BIGINT(metadata.generation());
+	return info;
+}
+
+bool GCSUseListedGeneration(GCSFileHandle &handle, const OpenFileInfo &info) {
+	if (!info.extended_info) {
+		return false;
+	}
+	auto &options = info.extended_info->options;
+	auto generation = options.find("generation");
+	idx_t file_size;
+	timestamp_t last_modified;
+	if (generation == options.end() || !info.extended_info->TryGetOption("file_size", file_size) ||
+	    !info.extended_info->TryGetOption("last_modified", last_modified)) {
+		return false;
+	}
+	handle.length = file_size;
+	handle.last_modified = last_modified;
+	handle.generation = generation->second.GetValue<int64_t>();
+	handle.listed = true;
+	return true;
+}
+
 void GCSFileSystem::ReadRange(GCSFileHandle &handle, idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	try {
 		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
 	} catch (const GCSStatusException &e) {
-		// Check if this is a NotFound error due to stale generation; retry once
+		// NotFound means the generation is gone: the object was overwritten or deleted without versioning
 		if (e.status_code != google::cloud::StatusCode::kNotFound) {
 			throw;
 		}
-		// Refresh metadata to get the current generation and retry
 		handle.context->InvalidateCachedMetadata(handle.bucket, handle.object_key);
+		// Other handles of a listed object, or this handle's earlier reads, used the old generation
+		if (handle.listed || handle.has_read) {
+			handle.context->InvalidateCachedList(handle.bucket);
+			throw IOException("GCS object \"%s\" changed while it was being read: generation %d no longer exists",
+			                  handle.path, handle.generation);
+		}
+		// Nothing has read the stale cached generation, so read the current one
 		handle.length = 0;
 		handle.generation = 0;
 		LoadFileInfo(handle);
 		ReadRangeInternal(handle, file_offset, buffer_out, buffer_out_len);
 	}
+	handle.has_read = true;
 }
 
 void GCSFileSystem::ReadRangeInternal(GCSFileHandle &handle, idx_t file_offset, char *buffer_out,
@@ -808,9 +849,7 @@ void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
 	if (cached_metadata.has_value()) {
 		handle.length = cached_metadata->size();
 		handle.generation = cached_metadata->generation();
-		auto time_point = cached_metadata->updated();
-		auto duration = time_point.time_since_epoch();
-		handle.last_modified = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+		handle.last_modified = GCSLastModified(*cached_metadata);
 		return;
 	}
 
@@ -824,11 +863,7 @@ void GCSFileSystem::LoadRemoteFileInfo(GCSFileHandle &handle) {
 
 	handle.length = object_metadata->size();
 	handle.generation = object_metadata->generation();
-
-	// Convert time_point to time_t
-	auto time_point = object_metadata->updated();
-	auto duration = time_point.time_since_epoch();
-	handle.last_modified = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+	handle.last_modified = GCSLastModified(*object_metadata);
 }
 
 void GCSFileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) {

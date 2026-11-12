@@ -191,3 +191,59 @@ TEST_CASE("Generation: Eviction preserves generation on remaining entries", "[gc
 	REQUIRE(new_entry.has_value());
 	REQUIRE(new_entry->generation() == 999);
 }
+
+TEST_CASE("Generation: Handles open listed objects at the listed generation", "[gcs][generation]") {
+	GCSReadOptions options;
+	auto credentials = google::cloud::MakeInsecureCredentials();
+	auto client = gcs::Client(google::cloud::Options {}.set<google::cloud::UnifiedCredentialsOption>(credentials));
+	auto context = make_shared_ptr<GCSContextState>(client, options);
+
+	GCSFileSystem fs("");
+	FileOpenFlags flags(FileOpenFlags::FILE_FLAGS_READ);
+	auto updated = std::chrono::system_clock::time_point(std::chrono::microseconds(1700000000123456LL));
+	auto listed = gcs::ObjectMetadata()
+	                  .set_bucket("test-bucket")
+	                  .set_name("test-object")
+	                  .set_size(4096)
+	                  .set_generation(1700000000000001LL);
+	listed.set_updated(updated);
+
+	SECTION("Listed info carries size, last-modified time and generation") {
+		auto info = GCSListedFileInfo("gs://test-bucket/test-object", listed);
+		REQUIRE(info.path == "gs://test-bucket/test-object");
+
+		GCSFileHandle handle(fs, info, flags, options, "test-bucket", "test-object", context);
+		REQUIRE(GCSUseListedGeneration(handle, info));
+		REQUIRE(handle.listed);
+		REQUIRE(handle.generation == 1700000000000001LL);
+		REQUIRE(handle.length == 4096);
+		REQUIRE(handle.last_modified == timestamp_t(1700000000123456LL));
+	}
+
+	SECTION("Listed generation does not depend on the metadata cache") {
+		auto newer = listed;
+		newer.set_generation(1700000000000002LL).set_size(8192);
+		context->SetCachedMetadata("test-bucket", "test-object", newer);
+
+		auto info = GCSListedFileInfo("gs://test-bucket/test-object", listed);
+		GCSFileHandle handle(fs, info, flags, options, "test-bucket", "test-object", context);
+		REQUIRE(GCSUseListedGeneration(handle, info));
+		REQUIRE(handle.generation == 1700000000000001LL);
+		REQUIRE(handle.length == 4096);
+	}
+
+	SECTION("Info without a listing is not used") {
+		OpenFileInfo info("gs://test-bucket/test-object");
+		GCSFileHandle handle(fs, info, flags, options, "test-bucket", "test-object", context);
+		REQUIRE_FALSE(GCSUseListedGeneration(handle, info));
+		REQUIRE_FALSE(handle.listed);
+		REQUIRE(handle.generation == 0);
+
+		// e.g. the local file system's listing, which has no generation
+		info.extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+		info.extended_info->options["file_size"] = Value::UBIGINT(4096);
+		info.extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(1700000000123456LL));
+		REQUIRE_FALSE(GCSUseListedGeneration(handle, info));
+		REQUIRE_FALSE(handle.listed);
+	}
+}
